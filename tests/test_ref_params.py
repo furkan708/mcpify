@@ -10,7 +10,7 @@ import argparse
 import pytest
 
 from mcpify.cli import filter_tools
-from mcpify.spec import SpecError, load_spec
+from mcpify.spec import load_spec
 from mcpify.tools import spec_to_tools
 
 SPEC = {
