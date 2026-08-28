@@ -2,6 +2,10 @@
 
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
+
+<p align="center">
+  <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
+</p>
 ![Tests](https://img.shields.io/badge/tests-53%20passed-brightgreen)
 [![CI](https://github.com/furkan708/mcpify/actions/workflows/ci.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml) ![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-261230.svg) ![Types: mypy](https://img.shields.io/badge/types-mypy-blue)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-success)
