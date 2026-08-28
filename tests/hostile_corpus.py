@@ -5,6 +5,8 @@ truefoundry OpenAPI->MCP edge-case guide, digitalapi conversion guide.
 Each scenario reports CRASH / WARN / OK so fixes can be prioritised.
 """
 
+import contextlib
+import io
 import json
 import sys
 import time
@@ -213,12 +215,9 @@ def c2_test():
 
     from mcpify import cli as cli_mod
     # doctor ciktisinda deprecated uyarisi var mi?
-    buf = _io.StringIO()
-    with redirect_stdout(buf):
-        try:
-            cli_mod.main(["doctor", "/tmp/doctor-test.json"])
-        except SystemExit:
-            pass
+    buf = io.StringIO()
+    with redirect_stdout(buf), contextlib.suppress(SystemExit):
+        cli_mod.main(["doctor", "/tmp/doctor-test.json"])
     return "deprecated operation" in buf.getvalue() or "deprecated" in buf.getvalue()
 
 
@@ -237,7 +236,7 @@ for i in range(500):
 
 def d1_test():
     basla = time.time()
-    tools = spec_to_tools(buyuk)
+    spec_to_tools(buyuk)
     sure = time.time() - basla
     if sure > 5:
         return f"500 op -> {sure:.1f}s cok yavas"
