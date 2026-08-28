@@ -11,7 +11,10 @@
   <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
 </p>
 
-[![Tests](https://img.shields.io/badge/tests-60%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-82%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
+[![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/ci.yml)
+[![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-4A90D9)](server.json)
 [![CI](https://github.com/furkan708/mcpify/actions/workflows/ci.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-261230.svg)](https://github.com/astral-sh/ruff)
@@ -48,7 +51,9 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
 - 🩺 **`mcpify doctor`** — tells you if your spec is agent-friendly before you ship
 - 🪶 **Zero dependencies** — one pure-Python file tree; YAML specs need an
   optional `pip install 'mcpify[yaml]'`
-- 🧪 **60 tests** including a full end-to-end suite against a real local HTTP API
+- 🧪 **82 tests** — unit, hostile-spec corpus, and full MCP protocol
+  end-to-end over stdio against a real local HTTP API, including the
+  **live api.weather.gov document** (69 tools, 16 enum'd parameters)
 
 ## 🚀 Quick start
 
@@ -155,6 +160,26 @@ mcpify doctor <spec>
 - Only local `$ref` pointers are resolved (bundle external docs first — most tools do anyway)
 - Request bodies are exposed as a single `body` object argument — predictable over clever
 - Spec versions: OpenAPI 3.x and Swagger 2.x roots are accepted; 3.x is the happy path
+
+## 🛡️ Hardened against the real world
+
+mcpify is audited on every release against a 10-category checklist of MCP
+best practices and published production failure modes — not just our own
+examples:
+
+- **Hostile-spec corpus (12/12):** circular `$ref`s, multipart uploads,
+  `allOf` schemas, server URL variables, relative base URLs, oversized
+  responses — every scenario derived from a documented real-world failure,
+  fixed, and locked in by a regression test. Sources include the arXiv
+  study of REST→MCP generation across 18 real APIs.
+- **Live integration:** the real api.weather.gov spec loads in CI — the
+  case that found (and fixed) our last crash-class bug.
+- **MCP lifecycle enforced:** tools are unreachable until the client
+  completes the `initialize` handshake.
+- **Blast-radius controls:** read-only mode, deny/allow policy layer,
+  40k-char response truncation, `--timeout`, credentials never logged.
+
+Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
 ## 🧪 Tests
 

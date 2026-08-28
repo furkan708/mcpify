@@ -74,9 +74,20 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
   "bakabilirler ama dokunamazlar" demek, üretimde standart olmalı.
 - **Sıfır bakım:** Spec'iniz değişirse sunucu yeniden başlatıldığında araçlar otomatik güncellenir.
 
+## 🛡️ Gerçek dünyaya karşı sağlamlaştırıldı
+
+Her sürümde 10 kategorilik denetim listesi yeniden koşulur: döngüsel `$ref`,
+multipart gövde, server URL değişkenleri, relative base URL, devasa yanıtlar —
+12 senaryonun hepsi yayımlanmış hata çalışmalarından türetildi, düzeltildi ve
+regresyon testiyle kilitlendi. MCP yaşam döngüsü zorunlu tutulur; 40k üzeri
+yanıtlar kesilir; kimlik bilgileri asla loglanmaz.
+
+Tam liste: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
+
 ## Test ve kalite
 
-- ✅ **60 test** (birim + uçtan uca MCP protokol testleri)
+- ✅ **82 test** — birim + düşmanca spec korpusu + gerçek HTTP API'ye karşı
+  uçtan uca MCP protokol testleri, **canlı api.weather.gov dokümanı dahil**
 - ✅ **mypy strict** tip denetimi, **ruff** lint
 - ✅ CI her push'ta çalışır: [badge'e bakın](https://github.com/furkan708/mcpify/actions)
 

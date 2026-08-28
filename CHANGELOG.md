@@ -9,6 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Planned
 - See the Roadmap section in the README.
 
+## [1.0.4] - 2026-08-29
+
+### Added
+- MCP lifecycle enforcement: `tools/*` before `initialize` returns -32002.
+- `MCPIFY_DEBUG=1` stderr logging (INFO/WARNING/ERROR, query strings stripped).
+- `doctor` warning for specs declaring securitySchemes without `--auth-env`.
+- VS Code client example; architecture-pattern section; Windows CI matrix.
+- Engineering audit checklist: docs/AUDIT-CHECKLIST.md.
+
+### Fixed
+- `serverInfo.version` now derives from package metadata (was hardcoded).
+
+## [1.0.3] - 2026-08-29
+
+### Fixed
+- Real-world spec hardening (research-sourced hostile corpus):
+  circular `$ref` bodies degrade instead of crashing; multipart bodies
+  exposed as raw string args; `allOf` merged; server-variable substitution;
+  relative server URLs fail fast; HEAD/OPTIONS/TRACE skipped; responses
+  truncated at ~40k chars; doctor warnings (deprecated ops, large surface).
+
+## [1.0.2] - 2026-08-29
+
+### Fixed
+- Parameter schemas referenced via `$ref` resolve against the full spec
+  (found against the live api.weather.gov document); unresolvable
+  parameters degrade to strings instead of crashing the listing.
+
+### Added
+- Published to the official MCP Registry (io.github.furkan708/mcpify).
+- `--allow`/`--deny` policy layer over `--read-only`.
+
+### Planned
+- See the Roadmap section in the README.
+
 ## [0.1.0] - 2026-08-28
 
 ### Added
