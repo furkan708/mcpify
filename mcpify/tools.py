@@ -6,7 +6,7 @@ import json
 import re
 from urllib.parse import quote
 
-from .spec import resolve_schema
+from .spec import SpecError, resolve_schema
 
 # Body arguments are exposed under this property name.
 BODY_ARG = "body"
@@ -58,10 +58,25 @@ def build_input_schema(
     operation: dict,
     parameters: list[dict],
     request_schema: dict | None,
+    spec: dict | None = None,
 ) -> dict:
-    """Build the JSON Schema for an MCP tool from parameters + request body."""
+    """Build the JSON Schema for an MCP tool from parameters + request body.
+
+    Parameter schemas are resolved against the full spec so `$ref`-based
+    parameters (common in large real-world specs) work. A parameter whose
+    schema cannot be resolved degrades to a string rather than failing the
+    whole server.
+    """
+    spec = spec or {}
     properties: dict = {}
     required: list[str] = []
+
+    def safe_resolve(schema: dict) -> dict:
+        try:
+            return resolve_schema(schema, spec)
+        except SpecError:
+            return {"type": "string",
+                    "description": "(schema could not be fully resolved from the spec)"}
 
     for param in parameters:
         location = param.get("in")
@@ -70,7 +85,10 @@ def build_input_schema(
         name = str(param.get("name", ""))
         if not name:
             continue
-        schema = resolve_schema(param.get("schema") or {}, {}) if param.get("schema") else {"type": "string"}
+        if param.get("schema"):
+            schema = safe_resolve(param["schema"])
+        else:
+            schema = {"type": "string"}
         entry = {"type": schema.get("type", "string"), "description": str(param.get("description", ""))}
         if schema.get("enum"):
             entry["enum"] = schema["enum"]
@@ -117,7 +135,7 @@ def operation_to_tool(method: str, path: str, operation: dict, path_item: dict, 
     return {
         "name": name,
         "description": build_description(method, path, operation),
-        "inputSchema": build_input_schema(method.upper(), operation, parameters, request_schema),
+        "inputSchema": build_input_schema(method.upper(), operation, parameters, request_schema, spec),
         "_meta": {
             "method": method.upper(),
             "path": path,
