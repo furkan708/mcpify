@@ -59,6 +59,7 @@ def build_input_schema(
     parameters: list[dict],
     request_schema: dict | None,
     spec: dict | None = None,
+    raw_body_content_type: str | None = None,
 ) -> dict:
     """Build the JSON Schema for an MCP tool from parameters + request body.
 
@@ -85,10 +86,7 @@ def build_input_schema(
         name = str(param.get("name", ""))
         if not name:
             continue
-        if param.get("schema"):
-            schema = safe_resolve(param["schema"])
-        else:
-            schema = {"type": "string"}
+        schema = safe_resolve(param["schema"]) if param.get("schema") else {"type": "string"}
         entry = {"type": schema.get("type", "string"), "description": str(param.get("description", ""))}
         if schema.get("enum"):
             entry["enum"] = schema["enum"]
@@ -102,12 +100,22 @@ def build_input_schema(
             required.append(key)
 
     if request_schema is not None and method not in ("GET", "HEAD", "DELETE"):
-        properties[BODY_ARG] = {
-            "type": "object",
-            "description": "JSON request body",
-            **({"properties": request_schema.get("properties", {})} if request_schema.get("properties") else {}),
-            **({"required": request_schema["required"]} if request_schema.get("required") else {}),
-        }
+        if raw_body_content_type:
+            properties[BODY_ARG] = {
+                "type": "string",
+                "description": (f"raw request body, sent as-is "
+                                f"(content type: {raw_body_content_type})"),
+            }
+        else:
+            note = ""
+            if not request_schema.get("properties") and request_schema.get("x-unresolved"):
+                note = " (schema could not be fully resolved from the spec)"
+            properties[BODY_ARG] = {
+                "type": "object",
+                "description": "JSON request body" + note,
+                **({"properties": request_schema.get("properties", {})} if request_schema.get("properties") else {}),
+                **({"required": request_schema["required"]} if request_schema.get("required") else {}),
+            }
 
     return {"type": "object", "properties": properties, "required": required}
 
@@ -117,12 +125,22 @@ def operation_to_tool(method: str, path: str, operation: dict, path_item: dict, 
     parameters = extract_parameters(operation, path_item, spec)
 
     request_schema = None
+    raw_body_content_type = None
     body = operation.get("requestBody")
     if isinstance(body, dict):
         content = body.get("content") or {}
         json_media = content.get("application/json")
         if isinstance(json_media, dict) and json_media.get("schema"):
-            request_schema = resolve_schema(json_media["schema"], spec)
+            try:
+                request_schema = resolve_schema(json_media["schema"], spec)
+            except SpecError:
+                # circular / unresolvable body schema must not kill the tool
+                request_schema = {"type": "object", "x-unresolved": True}
+        elif content:
+            # non-JSON bodies (multipart uploads, form posts): expose a raw
+            # string body instead of silently dropping the operation's payload
+            raw_body_content_type = next(iter(content))
+            request_schema = {"type": "string"}
 
     name = operation_id(method, path, operation)
     base = name
@@ -135,12 +153,13 @@ def operation_to_tool(method: str, path: str, operation: dict, path_item: dict, 
     return {
         "name": name,
         "description": build_description(method, path, operation),
-        "inputSchema": build_input_schema(method.upper(), operation, parameters, request_schema, spec),
+        "inputSchema": build_input_schema(method.upper(), operation, parameters, request_schema, spec, raw_body_content_type),
         "_meta": {
             "method": method.upper(),
             "path": path,
             "parameters": parameters,
             "has_body": request_schema is not None,
+            "raw_body_content_type": raw_body_content_type,
             "tags": list(operation.get("tags") or []),
         },
     }
@@ -153,6 +172,8 @@ def spec_to_tools(spec: dict) -> list[dict]:
     tools: list[dict] = []
     taken: set = set()
     for method, path, operation in iter_operations(spec):
+        if method.lower() in ("head", "options", "trace"):
+            continue  # no agent value; they carry no request semantics
         path_item = spec["paths"][path]
         tools.append(operation_to_tool(method, path, operation, path_item, spec, taken))
     return tools
@@ -218,10 +239,17 @@ def build_request(
         body = arguments.get(BODY_ARG)
         if body is None:
             raise RequestError(f"missing required argument '{BODY_ARG}' (JSON request body)")
-        if not isinstance(body, dict):
+        raw_ct = meta.get("raw_body_content_type")
+        if raw_ct:
+            if not isinstance(body, str):
+                raise RequestError(f"'{BODY_ARG}' must be a string for {raw_ct} bodies")
+            body_bytes = body.encode("utf-8")
+            headers["Content-Type"] = raw_ct
+        elif not isinstance(body, dict):
             raise RequestError(f"'{BODY_ARG}' must be a JSON object")
-        body_bytes = json.dumps(body).encode("utf-8")
-        headers["Content-Type"] = "application/json"
+        else:
+            body_bytes = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
         used.add(BODY_ARG)
 
     unknown = sorted(set(arguments) - used)

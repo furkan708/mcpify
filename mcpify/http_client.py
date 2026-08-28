@@ -41,11 +41,21 @@ def execute(request: dict, timeout: float = 30.0) -> dict:
     return {"status": status, "body": raw, "json": parsed}
 
 
+MAX_RESULT_CHARS = 40_000
+
+
 def format_result(result: dict) -> tuple[str, bool]:
-    """Format an execute() result for an MCP tool response: (text, is_error)."""
+    """Format an execute() result for an MCP tool response: (text, is_error).
+
+    Oversized bodies are truncated so a single tool call cannot blow the
+    client's context window.
+    """
     body = result["body"]
     if result["json"] is not None:
         body = json.dumps(result["json"], ensure_ascii=False, indent=2)
+    if len(body) > MAX_RESULT_CHARS:
+        kesilen = len(body) - MAX_RESULT_CHARS
+        body = body[:MAX_RESULT_CHARS] + f"\n… [truncated {kesilen:,} more characters]"
     is_error = result["status"] == 0 or result["status"] >= 400
     if is_error:
         return f"HTTP {result['status']}\n{body}", is_error

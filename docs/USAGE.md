@@ -210,6 +210,16 @@ Notes for production:
 
 ## 8. FAQ
 
+**What about non-JSON bodies, server variables, and huge responses?**
+- `multipart/form-data` or other non-JSON request bodies are exposed as a
+  raw `body` string argument, sent as-is with the spec's content type.
+- Server URL variables (`https://{host}/v2`) are substituted from their
+  declared defaults; variables without defaults or relative server URLs
+  fail at startup with a clear "pass --base-url" message instead of
+  producing broken requests.
+- Responses larger than ~40k characters are truncated with a note, so one
+  tool call cannot flood the model's context.
+
 **Does mcpify cache or store anything?**
 No. It is a stateless translation layer between MCP and your API.
 

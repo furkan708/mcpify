@@ -103,7 +103,25 @@ def resolve_schema(schema: Any, spec: dict, depth: int = 0) -> Any:
                 name: resolve_schema(sub, spec, depth + 1) for name, sub in value.items()
             }
         elif key in ("anyOf", "oneOf", "allOf") and isinstance(value, list):
-            resolved[key] = [resolve_schema(sub, spec, depth + 1) for sub in value]
+            resolved_subs = [resolve_schema(sub, spec, depth + 1) for sub in value]
+            if key == "allOf":
+                # allOf intersection: merge member properties/required upward
+                merged_props = dict(resolved.get("properties") or {})
+                merged_req = list(resolved.get("required") or [])
+                for sub in resolved_subs:
+                    if isinstance(sub, dict):
+                        merged_props.update(sub.get("properties") or {})
+                        for req in sub.get("required") or []:
+                            if req not in merged_req:
+                                merged_req.append(req)
+                if merged_props:
+                    resolved["properties"] = merged_props
+                if merged_req:
+                    resolved["required"] = merged_req
+                # merged members are flattened into the parent; the allOf key
+                # itself is intentionally dropped
+            else:
+                resolved[key] = resolved_subs
         else:
             resolved[key] = value
     return resolved

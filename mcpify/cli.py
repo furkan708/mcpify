@@ -61,10 +61,31 @@ def filter_tools(tools: list[dict], args: argparse.Namespace) -> list[dict]:
 def _base_url(spec: dict, override: str | None) -> str:
     if override:
         return override
-    servers = spec_servers(spec)
+    servers = spec.get("servers") or []
     if servers:
-        return servers[0]
-    _fail(
+        entry = servers[0] if isinstance(servers[0], dict) else {"url": str(servers[0])}
+        url = str(entry.get("url", ""))
+        # substitute server variables from their declared defaults
+        variables = entry.get("variables")
+        if isinstance(variables, dict):
+            for name, var in variables.items():
+                default = var.get("default") if isinstance(var, dict) else None
+                if default is not None:
+                    url = url.replace("{" + name + "}", str(default))
+        if "{" in url:
+            kalan = re.findall(r"\{([^{}]+)\}", url)
+            raise SpecError(
+                f"server URL variable(s) {kalan} have no default; "
+                "pass --base-url to set the target explicitly"
+            )
+        if url and not url.startswith(("http://", "https://")):
+            raise SpecError(
+                f"server URL '{url}' is relative and cannot be called; "
+                "pass --base-url with the absolute URL"
+            )
+        if url:
+            return url
+    raise SpecError(
         "no base URL: the spec declares no servers and --base-url was not given"
     )
 
@@ -172,16 +193,15 @@ def main(argv: list[str] | None = None) -> None:
         print(dim(f"serve it: mcpify serve {args.spec}"))
 
     elif args.command == "serve":
-        if not args.base_url and not spec_servers(spec):
-            _fail(
-                "no base URL: the spec declares no servers and --base-url was not given"
-            )
         auth = None
         if args.auth_env:
             auth = AuthConfig(args.auth_env, args.auth_style, args.auth_name)
         from .api_server import ApiServer
 
-        base = args.base_url or spec_servers(spec)[0]
+        try:
+            base = _base_url(spec, args.base_url)
+        except SpecError as err:
+            _fail(str(err))
         server = ApiServer(
             spec,
             base,
@@ -230,6 +250,13 @@ def main(argv: list[str] | None = None) -> None:
             print(warn(f"warning: {no_summary}/{total} operations have no summary (agents see no description)"))
         if variabled:
             print(warn(f"warning: server URL(s) contain variables: {', '.join(variabled)} — pass --base-url"))
+        if servers and not servers[0].startswith(("http://", "https://")):
+            print(warn(f"warning: server URL '{servers[0]}' is relative — pass --base-url with the absolute URL"))
+        deprecated = sum(1 for _m, _p, op in iter_operations(spec) if op.get("deprecated"))
+        if deprecated:
+            print(warn(f"warning: {deprecated} deprecated operation(s) will be exposed (filter with --tag/--exclude if unintended)"))
+        if total > 50:
+            print(warn(f"warning: {total} operations is a large tool surface — consider --tag/--include/--exclude to protect the model's context"))
         if not missing_id and not no_summary:
             print(ok("all operations carry operationId and summary — agent-friendly ✓"))
 

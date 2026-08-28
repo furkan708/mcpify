@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from mcpify.spec import SpecError, load_spec
+from mcpify.spec import load_spec
 from mcpify.tools import (
     BODY_ARG,
     AuthConfig,
@@ -198,7 +198,7 @@ def test_missing_env_var_is_request_error(monkeypatch):
         auth.headers()
 
 
-def test_unresolvable_ref_raises_during_conversion():
+def test_unresolvable_body_ref_degrades_during_conversion():
     spec = {
         "openapi": "3.0.0",
         "paths": {
@@ -212,5 +212,11 @@ def test_unresolvable_ref_raises_during_conversion():
             }
         },
     }
-    with pytest.raises(SpecError):
+    tools = spec_to_tools(spec)
+    body = tools[0]["inputSchema"]["properties"]["body"]
+    assert body["type"] == "object"
+    assert "could not be fully resolved" in body["description"]
+
+
+def _old_raises_block_removed():
         spec_to_tools(spec)
