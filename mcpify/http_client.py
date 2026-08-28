@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import urllib.error
 import urllib.request
@@ -35,10 +36,8 @@ def execute(request: dict, timeout: float = 30.0) -> dict:
         }
 
     parsed = None
-    try:
+    with contextlib.suppress(json.JSONDecodeError, ValueError):
         parsed = json.loads(raw)
-    except (json.JSONDecodeError, ValueError):
-        pass
     return {"status": status, "body": raw, "json": parsed}
 
 

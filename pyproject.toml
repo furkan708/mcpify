@@ -21,6 +21,8 @@ classifiers = [
 
 [project.optional-dependencies]
 yaml = ["pyyaml>=6.0"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6", "mypy>=1.11", "types-PyYAML", "pyyaml>=6.0"]
+
 
 [project.scripts]
 mcpify = "mcpify.cli:main"
@@ -31,3 +33,23 @@ include = ["mcpify*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+warn_unused_ignores = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["mcpify"]
+
+[tool.coverage.report]
+show_missing = true
+precision = 1

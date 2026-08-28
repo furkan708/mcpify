@@ -152,12 +152,6 @@ def test_build_request_unknown_arguments_rejected():
 
 
 def test_authorization_header_param_is_ignored():
-    meta = {
-        "method": "GET",
-        "path": "/x",
-        "parameters": [{"name": "Authorization", "in": "header"}],
-        "has_body": False,
-    }
     schema_like = spec_to_tools(
         {
             "openapi": "3.0.0",

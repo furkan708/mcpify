@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
+from typing import Any
 
 from .http_client import execute, format_result
 from .tools import AuthConfig, RequestError, build_request, spec_to_tools
-from .tools import BODY_ARG
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "mcpify"
@@ -61,14 +60,14 @@ class ApiServer:
         return format_result(result)
 
     # -- MCP plumbing -----------------------------------------------------
-    def _result(self, request_id, payload):
+    def _result(self, request_id: int | str | None, payload: dict) -> dict:
         return {"jsonrpc": "2.0", "id": request_id, "result": payload}
 
-    def _error(self, request_id, code: int, message: str):
+    def _error(self, request_id: int | str | None, code: int, message: str) -> dict:
         return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
 
     def _text(self, text: str, is_error: bool = False) -> dict:
-        payload = {"content": [{"type": "text", "text": text}]}
+        payload: dict = {"content": [{"type": "text", "text": text}]}
         if is_error:
             payload["isError"] = True
         return payload
@@ -106,19 +105,21 @@ class ApiServer:
             return self._result(request_id, self._text(text, is_error=is_error))
         return self._error(request_id, -32601, f"method not found: {method}")
 
-    def serve(self, stdin=None, stdout=None) -> None:
+    def serve(self, stdin: Any = None, stdout: Any = None) -> None:
         input_stream = stdin if stdin is not None else sys.stdin
         output_stream = stdout if stdout is not None else sys.stdout
         for line in input_stream:
             line = line.strip()
             if not line:
                 continue
+            decoded: Any
+            response: dict | None
             try:
-                message = json.loads(line)
+                decoded = json.loads(line)
             except json.JSONDecodeError:
                 response = self._error(None, -32700, "parse error")
             else:
-                response = self.handle_message(message)
+                response = self.handle_message(decoded)
             if response is not None:
                 output_stream.write(json.dumps(response, ensure_ascii=False) + "\n")
                 output_stream.flush()

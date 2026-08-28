@@ -37,7 +37,7 @@ def extract_parameters(operation: dict, path_item: dict, spec: dict) -> list[dic
     """Collect path/query/header parameters from the operation and its path item."""
     merged: dict[tuple, dict] = {}
 
-    def add(params):
+    def add(params: list[dict]) -> None:
         for param in params:
             if not isinstance(param, dict):
                 continue
@@ -57,7 +57,7 @@ def build_input_schema(
     method: str,
     operation: dict,
     parameters: list[dict],
-    request_schema,
+    request_schema: dict | None,
 ) -> dict:
     """Build the JSON Schema for an MCP tool from parameters + request body."""
     properties: dict = {}
@@ -152,10 +152,9 @@ def build_request(
     base_url: str,
     meta: dict,
     arguments: dict,
-    auth: "AuthConfig | None" = None,
+    auth: AuthConfig | None = None,
 ) -> dict:
     """Turn tool arguments into a concrete HTTP request (url/headers/body)."""
-    import os
 
     method = meta["method"]
     path_template = meta["path"]

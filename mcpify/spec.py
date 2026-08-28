@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import urllib.request
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 HTTP_METHODS = ("get", "put", "post", "delete", "patch", "options", "head")
 
@@ -40,7 +42,7 @@ def load_spec(source: str) -> dict:
         data = json.loads(text)
     except json.JSONDecodeError:
         try:
-            import yaml  # type: ignore
+            import yaml
         except ImportError:
             raise SpecError(
                 f"'{source}' is not valid JSON. For YAML specs install: "
@@ -62,7 +64,7 @@ def load_spec(source: str) -> dict:
     return data
 
 
-def resolve_ref(spec: dict, ref: str):
+def resolve_ref(spec: dict, ref: str) -> Any:
     """Resolve a local reference like '#/components/schemas/Pet'."""
     if not ref.startswith("#/"):
         raise SpecError(
@@ -79,7 +81,7 @@ def resolve_ref(spec: dict, ref: str):
     return node
 
 
-def resolve_schema(schema, spec: dict, depth: int = 0):
+def resolve_schema(schema: Any, spec: dict, depth: int = 0) -> Any:
     """Deeply resolve internal $ref pointers inside a schema."""
     if depth > 20:
         raise SpecError("circular $ref chain too deep (max 20)")
@@ -107,7 +109,7 @@ def resolve_schema(schema, spec: dict, depth: int = 0):
     return resolved
 
 
-def iter_operations(spec: dict):
+def iter_operations(spec: dict) -> Iterator[tuple[str, str, dict]]:
     """Yield (method, path, operation) for every operation in the document."""
     for path, path_item in spec.get("paths", {}).items():
         if not isinstance(path_item, dict):

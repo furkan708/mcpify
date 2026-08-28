@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from typing import NoReturn
 
 from . import __version__
 from .spec import SpecError, iter_operations, load_spec, spec_servers
@@ -13,12 +14,12 @@ from .tools import AuthConfig, spec_to_tools
 USE_COLOR = sys.stdout.isatty()
 
 
-def _fail(message: str, code: int = 2) -> None:
+def _fail(message: str, code: int = 2) -> NoReturn:
     print(f"error: {message}", file=sys.stderr)
     sys.exit(code)
 
 
-def filter_tools(tools: list[dict], args) -> list[dict]:
+def filter_tools(tools: list[dict], args: argparse.Namespace) -> list[dict]:
     """Apply --tag / --include / --exclude / --read-only filters."""
     include = [p.rstrip("/") for p in (args.include or [])]
     exclude = [p.rstrip("/") for p in (args.exclude or [])]
@@ -122,10 +123,14 @@ def main(argv: list[str] | None = None) -> None:
                 )
             )
             return
-        bold = lambda s: f"\033[1m{s}\033[0m" if USE_COLOR else s
-        dim = lambda s: f"\033[2m{s}\033[0m" if USE_COLOR else s
-        green = lambda s: f"\033[32m{s}\033[0m" if USE_COLOR else s
-        cyan = lambda s: f"\033[36m{s}\033[0m" if USE_COLOR else s
+        def bold(s: str) -> str:
+            return f"\033[1m{s}\033[0m" if USE_COLOR else s
+        def dim(s: str) -> str:
+            return f"\033[2m{s}\033[0m" if USE_COLOR else s
+        def green(s: str) -> str:
+            return f"\033[32m{s}\033[0m" if USE_COLOR else s
+        def cyan(s: str) -> str:
+            return f"\033[36m{s}\033[0m" if USE_COLOR else s
         print(bold(f"mcpify: {len(tools)} tools from {args.spec}"))
         print(dim("─" * 78))
         for tool in tools:
@@ -176,7 +181,7 @@ def main(argv: list[str] | None = None) -> None:
         total = 0
         missing_id = 0
         no_summary = 0
-        for method, path, operation in iter_operations(spec):
+        for _method, _path, operation in iter_operations(spec):
             total += 1
             if not operation.get("operationId"):
                 missing_id += 1
@@ -184,11 +189,12 @@ def main(argv: list[str] | None = None) -> None:
                 no_summary += 1
         servers = spec_servers(spec)
         variabled = [s for s in servers if "{" in s]
-        if USE_COLOR:
-            ok = lambda s: f"\033[32m{s}\033[0m"
-            warn = lambda s: f"\033[33m{s}\033[0m"
-        else:
-            ok = warn = lambda s: s
+        def ok(s: str) -> str:
+            return f"\033[32m{s}\033[0m" if USE_COLOR else s
+
+        def warn(s: str) -> str:
+            return f"\033[33m{s}\033[0m" if USE_COLOR else s
+
         print(f"openapi: {spec.get('openapi') or spec.get('swagger')}")
         print(f"title:   {spec.get('info', {}).get('title', '(untitled)')}")
         print(f"paths:   {len(spec.get('paths', {}))}")

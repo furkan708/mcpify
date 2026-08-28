@@ -141,7 +141,6 @@ def test_bearer_auth_reaches_the_api(api, tmp_path):
     spec_path.write_text(json.dumps(spec), encoding="utf-8")
 
     server = ApiServer(load_spec(str(spec_path)), api, auth=AuthConfig("TEST_TOKEN", "bearer"))
-    import os
 
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setenv("TEST_TOKEN", "super-secret")
