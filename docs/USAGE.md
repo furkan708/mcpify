@@ -221,6 +221,14 @@ outgoing requests only. They never appear in tool descriptions or results.
 Exposed as a single `body` object argument whose shape comes from the
 spec's `requestBody` schema (with `$ref`s resolved).
 
+**Is a dynamically generated server safe for production?**
+The tool surface is built **once at startup** from your spec and never changes
+while the process runs — so a running server is as stable as a handwritten one.
+For production, pin the spec: commit the exact file you reviewed and serve that
+path (not a live URL), add `mcpify doctor` to CI, and set the exposure policy
+explicitly (`--read-only` with `--allow`/`--deny`). The OpenAPI spec is already
+a versioned contract; mcpify projects it, it doesn't invent a moving surface.
+
 **Does it support SSE/streaming MCP transports?**
 Currently stdio only — which is what Claude Code, Cursor, and Claude
 Desktop spawn. If you need HTTP transport, put a transport shim in front.
