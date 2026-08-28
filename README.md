@@ -42,11 +42,15 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
 - 🩺 **`mcpify doctor`** — tells you if your spec is agent-friendly before you ship
 - 🪶 **Zero dependencies** — one pure-Python file tree; YAML specs need an
   optional `pip install 'mcpify[yaml]'`
-- 🧪 **53 tests** including a full end-to-end suite against a real local HTTP API
+- 🧪 **60 tests** including a full end-to-end suite against a real local HTTP API
 
 ## 🚀 Quick start
 
 ```bash
+# install from PyPI (installs the `mcpify` command)
+pipx install mcpify-openapi
+
+# ...or from source
 git clone https://github.com/furkan708/mcpify.git
 cd mcpify && pip install .
 
