@@ -1,0 +1,21 @@
+name: 🐛 Bug report
+description: Report something broken or unexpected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to file this — clear reports get fixed faster.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Steps to reproduce, expected vs actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, version, and how you installed the tool.
+    validations:
+      required: false
