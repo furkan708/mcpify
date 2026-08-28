@@ -36,8 +36,9 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
 - 🧰 **Every operation becomes a first-class MCP tool** — input schemas are
   generated from `parameters` + `requestBody`, internal `$ref`s are resolved
 - 🎚️ **Scope it down** — `--read-only` (GET only), `--tag payments`,
-  `--include /v1/orders`, `--exclude /admin` — great for giving agents the
-  safe subset
+  `--include /v1/orders`, `--exclude /admin`, plus a policy layer for real-world
+  APIs: `--deny REGEX` hides mutating GETs, `--allow REGEX` re-includes
+  read-style POST endpoints. Deny always wins.
 - 🩺 **`mcpify doctor`** — tells you if your spec is agent-friendly before you ship
 - 🪶 **Zero dependencies** — one pure-Python file tree; YAML specs need an
   optional `pip install 'mcpify[yaml]'`

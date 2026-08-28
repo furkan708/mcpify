@@ -78,16 +78,38 @@ it never sends an unauthenticated request blindly.
 
 ## 3. Scoping which operations are exposed
 
-Giving an agent *everything* is rarely what you want. Four filters combine:
+Giving an agent *everything* is rarely what you want. Six filters combine:
 
 | Flag | Effect |
 | ---- | ------ |
-| `--read-only` | Only `GET` operations |
+| `--read-only` | Only `GET` operations (a heuristic — see below) |
 | `--tag payments` | Only operations with that OpenAPI tag |
 | `--include /v1/orders` | Only this path prefix (repeatable) |
 | `--exclude /admin` | Everything except this prefix (repeatable) |
+| `--allow REGEX` | Re-include operations that `--read-only` dropped |
+| `--deny REGEX` | Never expose matching paths — wins over everything |
 
-`--include` and `--exclude` combine; excludes win.
+`--include` and `--exclude` combine; excludes win. Deny beats allow.
+
+### GET-only is not side-effect-free
+
+Method filtering is a heuristic. Real APIs break it in both directions:
+
+- **GETs that mutate** — `/admin/reset-cache` is a GET but flushes state.
+- **Reads that use POST** — `/search` with a request body touches nothing.
+
+The policy layer handles both honestly:
+
+```bash
+mcpify serve api.json \
+  --read-only \
+  --deny '/admin' \
+  --allow '/search'
+```
+
+Treat the output of `mcpify list` as the permission boundary: whatever it
+shows is what the agent can call. If a GET looks suspicious even when
+read-only, deny it explicitly.
 
 ```bash
 # A safe "reporting" server: only reads, no admin paths
