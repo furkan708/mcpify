@@ -1,0 +1,123 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Petstore",
+    "description": "A minimal pet store API used to demonstrate mcpify.",
+    "version": "1.0.0"
+  },
+  "servers": [{ "url": "https://petstore.example.com/v1" }],
+  "paths": {
+    "/pets": {
+      "get": {
+        "summary": "List all pets",
+        "operationId": "list_pets",
+        "tags": ["pets"],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "How many pets to return",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100 }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "Filter by kind",
+            "schema": { "type": "string", "enum": ["cat", "dog", "bird"] }
+          }
+        ],
+        "responses": { "200": { "description": "A list of pets" } }
+      },
+      "post": {
+        "summary": "Create a pet",
+        "operationId": "create_pet",
+        "tags": ["pets"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/NewPet" }
+            }
+          }
+        },
+        "responses": { "201": { "description": "The created pet" } }
+      }
+    },
+    "/pets/{petId}": {
+      "get": {
+        "summary": "Get a single pet",
+        "operationId": "get_pet",
+        "tags": ["pets"],
+        "parameters": [
+          { "name": "petId", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "One pet" } }
+      },
+      "delete": {
+        "summary": "Delete a pet",
+        "operationId": "delete_pet",
+        "tags": ["pets"],
+        "parameters": [
+          { "name": "petId", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": { "204": { "description": "Deleted" } }
+      }
+    },
+    "/pets/{petId}/vaccinations": {
+      "get": {
+        "summary": "List vaccinations of a pet",
+        "operationId": "list_vaccinations",
+        "tags": ["vaccinations"],
+        "parameters": [
+          { "name": "petId", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Vaccination list" } }
+      },
+      "post": {
+        "summary": "Record a vaccination",
+        "operationId": "add_vaccination",
+        "tags": ["vaccinations"],
+        "parameters": [
+          { "name": "petId", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Vaccination" }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Recorded" } }
+      }
+    },
+    "/stats": {
+      "get": {
+        "summary": "Store statistics",
+        "operationId": "get_stats",
+        "responses": { "200": { "description": "Statistics" } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "NewPet": {
+        "type": "object",
+        "required": ["name", "kind"],
+        "properties": {
+          "name": { "type": "string", "description": "Pet name" },
+          "kind": { "type": "string", "enum": ["cat", "dog", "bird"] },
+          "age": { "type": "integer", "description": "Age in years" }
+        }
+      },
+      "Vaccination": {
+        "type": "object",
+        "required": ["vaccine"],
+        "properties": {
+          "vaccine": { "type": "string" },
+          "date": { "type": "string", "format": "date" }
+        }
+      }
+    }
+  }
+}
