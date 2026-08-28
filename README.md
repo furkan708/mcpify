@@ -19,7 +19,9 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-261230.svg)](https://github.com/astral-sh/ruff)
 [![Types: mypy](https://img.shields.io/badge/types-mypy-blue)](https://mypy-lang.org/)
-[![PyPI](https://img.shields.io/badge/PyPI-mcpify--openapi-3775A9)](https://pypi.org/project/mcpify-openapi/)
+[![PyPI](https://img.shields.io/pypi/v/mcpify-openapi)](https://pypi.org/project/mcpify-openapi/)
+[![PyPI Downloads](https://img.shields.io/pypi/dm/mcpify-openapi)](https://pypi.org/project/mcpify-openapi/)
+[![Run with uvx](https://img.shields.io/badge/run%20with-uvx-DE5FE9)](https://docs.astral.sh/uv/)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-success)
 
 **Turn any OpenAPI REST API into an [MCP](https://modelcontextprotocol.io) server** — so Claude Code, Cursor, and every other MCP client can call your API directly. One command. Zero dependencies.
@@ -58,8 +60,14 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
 ## 🚀 Quick start
 
 ```bash
-# install from PyPI (installs the `mcpify` command)
+# run without installing (uvx — pulls from PyPI on demand)
+uvx --from mcpify-openapi mcpify list ./openapi.json --read-only
+
+# or install (installs the `mcpify` command)
 pipx install mcpify-openapi
+
+# ...as a container (GHCR, published on every release)
+docker run -i ghcr.io/furkan708/mcpify:latest serve ./openapi.json --read-only
 
 # ...or from source
 git clone https://github.com/furkan708/mcpify.git
