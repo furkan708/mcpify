@@ -196,6 +196,15 @@ Notes for production:
 - Run `mcpify doctor` to see how many operations lack ids/summaries —
   fixing those makes agent interaction dramatically better.
 
+### Deliberate omissions: retries, rate limits, circuit breakers
+
+mcpify intentionally does **not** retry failed calls, rate-limit, or apply
+circuit breakers. Retrying a non-idempotent POST can duplicate side effects;
+those protections belong at the API gateway in front of your service, where
+they can be configured per-endpoint with real observability. mcpify limits
+blast radius instead: read-only mode, deny/allow policies, explicit timeouts
+(`--timeout`), and truncated responses so no single call floods the context.
+
 ## 7. Troubleshooting
 
 | Symptom | Cause / fix |

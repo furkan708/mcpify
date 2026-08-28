@@ -4,8 +4,21 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
+import sys
+import time
 import urllib.error
 import urllib.request
+
+_DEBUG = os.environ.get("MCPIFY_DEBUG") == "1"
+
+
+def _log(level: str, message: str) -> None:
+    """Optional stderr logging (MCPIFY_DEBUG=1). NEVER touches stdout:
+    the JSON-RPC stream must stay clean. URLs are logged without query
+    strings so query-style auth credentials never hit the log."""
+    if _DEBUG:
+        print(f"{level} mcpify: {message}", file=sys.stderr, flush=True)
 
 
 def execute(request: dict, timeout: float = 30.0) -> dict:
@@ -15,12 +28,14 @@ def execute(request: dict, timeout: float = 30.0) -> dict:
     the agent can see API error payloads and react to them.
     """
     data = request.get("body")
+    url_guvenli = request["url"].split("?", 1)[0]
     req = urllib.request.Request(
         request["url"],
         data=data,
         headers=request["headers"],
         method=request["method"],
     )
+    basla = time.monotonic()
     try:
         with urllib.request.urlopen(req, timeout=timeout) as response:
             status = response.status
@@ -29,11 +44,19 @@ def execute(request: dict, timeout: float = 30.0) -> dict:
         status = err.code
         raw = err.read().decode("utf-8", "replace")
     except urllib.error.URLError as err:
+        _log("ERROR", f"{request['method']} {url_guvenli} -> connection failed: {err.reason}")
         return {
             "status": 0,
             "body": f"connection failed: {err.reason}",
             "json": None,
         }
+    sure = time.monotonic() - basla
+    if status >= 500:
+        _log("ERROR", f"{request['method']} {url_guvenli} -> {status} ({sure:.2f}s)")
+    elif status >= 400:
+        _log("WARNING", f"{request['method']} {url_guvenli} -> {status} ({sure:.2f}s)")
+    else:
+        _log("INFO", f"{request['method']} {url_guvenli} -> {status} ({sure:.2f}s)")
 
     parsed = None
     with contextlib.suppress(json.JSONDecodeError, ValueError):

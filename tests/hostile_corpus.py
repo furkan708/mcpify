@@ -207,9 +207,21 @@ SPEC_DEPRECATED = {
     "paths": {"/old": {"get": {"operationId": "oldGet", "summary": "old",
                                "deprecated": True, "responses": {"200": {"description": "ok"}}}}},
 }
-durum(lambda: "deprecated arac sessizce acik (uyari yok)" if any(
-        t["_meta"].get("deprecated") is not None for t in []) else "doctor/uyari katmani yok (list normal)",
-      "C2 deprecated operasyon uyarisi", "tool-surface", "digitalapi")
+def c2_test():
+    from mcpify import cli as cli_mod
+    import io as _io
+    from contextlib import redirect_stdout
+    # doctor ciktisinda deprecated uyarisi var mi?
+    buf = _io.StringIO()
+    with redirect_stdout(buf):
+        try:
+            cli_mod.main(["doctor", "/tmp/doctor-test.json"])
+        except SystemExit:
+            pass
+    return "deprecated operation" in buf.getvalue() or "deprecated" in buf.getvalue()
+
+
+durum(c2_test, "C2 deprecated operasyon uyarisi (doctor)", "tool-surface", "digitalapi")
 
 print()
 print("=== D) RUNTIME KATEGORISI ===")
@@ -228,7 +240,7 @@ def d1_test():
     sure = time.time() - basla
     if sure > 5:
         return f"500 op -> {sure:.1f}s cok yavas"
-    return f"OK ({len(tools)} tool, {sure:.2f}s)" if True else True
+    return True  # {len(tools)} tool, {sure:.2f}s
 
 
 durum(d1_test, "D1 500-operasyon performans", "scale", "digitalapi")

@@ -97,3 +97,19 @@ predictable, matches OpenAPI 1:1, and renders well in every MCP client.
 
 The e2e suite is the safety net for refactors: it proves that a change in
 schema resolution still produces wire-correct HTTP requests.
+
+
+## Design pattern
+
+mcpify is a **Domain Adapter** (API-gateway shape): one upstream service, one
+generated surface, no aggregation. It translates between two contracts — the
+OpenAPI document and the MCP tool schema — at process startup, then stays a
+stateless passthrough per call.
+
+It deliberately is *not*:
+
+- a **Proxy Aggregator** (it fronts exactly one spec; run one process per API
+  and let the client connect to several),
+- a **Stateful Session** server (no per-conversation memory beyond the spec
+  loaded at boot),
+- a **Tool Orchestrator** (it does not chain tools; the agent does).

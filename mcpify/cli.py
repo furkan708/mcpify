@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from typing import NoReturn
@@ -12,7 +13,16 @@ from . import __version__
 from .spec import SpecError, iter_operations, load_spec, spec_servers
 from .tools import AuthConfig, spec_to_tools
 
-USE_COLOR = sys.stdout.isatty()
+USE_COLOR = (
+    sys.stdout.isatty()
+    and not os.environ.get("NO_COLOR")
+    and (
+        os.name != "nt"
+        or os.environ.get("WT_SESSION")
+        or os.environ.get("ANSICON")
+        or os.environ.get("TERM_PROGRAM") == "vscode"
+    )
+)
 
 
 def _fail(message: str, code: int = 2) -> NoReturn:
@@ -252,6 +262,9 @@ def main(argv: list[str] | None = None) -> None:
             print(warn(f"warning: server URL(s) contain variables: {', '.join(variabled)} — pass --base-url"))
         if servers and not servers[0].startswith(("http://", "https://")):
             print(warn(f"warning: server URL '{servers[0]}' is relative — pass --base-url with the absolute URL"))
+        security = ((spec.get("components") or {}).get("securitySchemes") or {})
+        if security:
+            print(warn(f"warning: spec declares security schemes ({', '.join(sorted(security))}) — serve with --auth-env/--auth-style or calls will 401"))
         deprecated = sum(1 for _m, _p, op in iter_operations(spec) if op.get("deprecated"))
         if deprecated:
             print(warn(f"warning: {deprecated} deprecated operation(s) will be exposed (filter with --tag/--exclude if unintended)"))

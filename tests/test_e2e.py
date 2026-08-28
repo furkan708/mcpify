@@ -71,7 +71,10 @@ def server(api, tmp_path):
     spec = load_spec("examples/petstore.json")
     spec["servers"] = [{"url": api}]
     spec_path.write_text(json.dumps(spec), encoding="utf-8")
-    return ApiServer(load_spec(str(spec_path)), api, auth=None)
+    server = ApiServer(load_spec(str(spec_path)), api, auth=None)
+    server.handle_message(rpc("initialize"))
+    server.handle_message(rpc("notifications/initialized"))
+    return server
 
 
 def rpc(method, params=None, request_id=1):
@@ -141,6 +144,8 @@ def test_bearer_auth_reaches_the_api(api, tmp_path):
     spec_path.write_text(json.dumps(spec), encoding="utf-8")
 
     server = ApiServer(load_spec(str(spec_path)), api, auth=AuthConfig("TEST_TOKEN", "bearer"))
+    server.handle_message(rpc("initialize"))
+    server.handle_message(rpc("notifications/initialized"))
 
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setenv("TEST_TOKEN", "super-secret")

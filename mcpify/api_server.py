@@ -11,12 +11,12 @@ import json
 import sys
 from typing import Any
 
+from . import __version__ as SERVER_VERSION  # never hardcode: avoids version drift
 from .http_client import execute, format_result
 from .tools import AuthConfig, RequestError, build_request, spec_to_tools
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "mcpify"
-SERVER_VERSION = "1.0.0"
 
 
 class ApiServer:
@@ -37,6 +37,7 @@ class ApiServer:
         self.timeout = timeout
         self.tools = spec_to_tools(spec)
         self.by_name = {tool["name"]: tool for tool in self.tools}
+        self._initialized = False
 
     # -- public API used by the CLI --------------------------------------
     @property
@@ -87,10 +88,16 @@ class ApiServer:
                     "serverInfo": {"name": self.server_name, "version": SERVER_VERSION},
                 },
             )
+        if method == "notifications/initialized":
+            self._initialized = True
+            return None
         if method.startswith("notifications/"):
             return None
         if method == "ping":
             return self._result(request_id, {})
+        if method in ("tools/list", "tools/call") and not self._initialized:
+            # MCP lifecycle: requests before initialization completes must fail
+            return self._error(request_id, -32002, "Server not initialized: send initialize and notifications/initialized first")
         if method == "tools/list":
             return self._result(request_id, {"tools": self.public_tools()})
         if method == "tools/call":
