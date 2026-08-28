@@ -208,9 +208,10 @@ SPEC_DEPRECATED = {
                                "deprecated": True, "responses": {"200": {"description": "ok"}}}}},
 }
 def c2_test():
-    from mcpify import cli as cli_mod
     import io as _io
     from contextlib import redirect_stdout
+
+    from mcpify import cli as cli_mod
     # doctor ciktisinda deprecated uyarisi var mi?
     buf = _io.StringIO()
     with redirect_stdout(buf):
