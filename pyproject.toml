@@ -7,7 +7,7 @@ name = "mcpify"
 version = "0.1.0"
 description = "Turn any OpenAPI REST API into an MCP server so AI agents can call it — zero dependencies"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 keywords = ["mcp", "model-context-protocol", "openapi", "swagger", "ai-agents", "claude", "rest", "api", "cli"]
 classifiers = [
