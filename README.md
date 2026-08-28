@@ -1,6 +1,6 @@
 # 🔌 mcpify
 
-![Python](https://img.shields.io/badge/python-3.9%2B-blue)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 🌐 English | [Türkçe](README.tr.md)
@@ -8,13 +8,17 @@
 <p align="center">
   <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
 </p>
-![Tests](https://img.shields.io/badge/tests-53%20passed-brightgreen)
-[![CI](https://github.com/furkan708/mcpify/actions/workflows/ci.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml) ![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-261230.svg) ![Types: mypy](https://img.shields.io/badge/types-mypy-blue)
+
+[![Tests](https://img.shields.io/badge/tests-60%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![CI](https://github.com/furkan708/mcpify/actions/workflows/ci.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-261230.svg)](https://github.com/astral-sh/ruff)
+[![Types: mypy](https://img.shields.io/badge/types-mypy-blue)](https://mypy-lang.org/)
+[![PyPI](https://img.shields.io/badge/PyPI-mcpify--openapi-3775A9)](https://pypi.org/project/mcpify-openapi/)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-success)
 
 **Turn any OpenAPI REST API into an [MCP](https://modelcontextprotocol.io) server** — so Claude Code, Cursor, and every other MCP client can call your API directly. One command. Zero dependencies.
 
-![mcpify terminal demo](docs/screenshot.png)
 
 Your company has a REST API. Your AI agent needs to call it. Until now that
 meant hand-writing a custom MCP server for every API. With mcpify:
