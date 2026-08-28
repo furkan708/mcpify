@@ -29,8 +29,8 @@ tipatanmış parametrelerle bir MCP aracına dönüşür. Kod üretimi yok, şab
 
 ```bash
 # 1. Kurun
-pipx install git+https://github.com/furkan708/mcpify
-# PyPI'da yakinda: pipx install mcpify-openapi  — komut adi yine `mcpify`
+pipx install mcpify-openapi
+# ya da kaynaktan: pipx install git+https://github.com/furkan708/mcpify
 
 # 2. Modeliniz ne görecek, önce önizleyin
 mcpify list ./openapi.json --read-only
