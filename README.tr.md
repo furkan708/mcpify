@@ -76,7 +76,7 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 
 ## Test ve kalite
 
-- ✅ **53 test** (birim + uçtan uca MCP protokol testleri)
+- ✅ **60 test** (birim + uçtan uca MCP protokol testleri)
 - ✅ **mypy strict** tip denetimi, **ruff** lint
 - ✅ CI her push'ta çalışır: [badge'e bakın](https://github.com/furkan708/mcpify/actions)
 
