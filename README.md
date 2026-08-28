@@ -3,6 +3,8 @@
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+🌐 English | [Türkçe](README.tr.md)
+
 <p align="center">
   <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
 </p>
