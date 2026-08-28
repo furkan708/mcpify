@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from typing import NoReturn
 
@@ -20,23 +21,38 @@ def _fail(message: str, code: int = 2) -> NoReturn:
 
 
 def filter_tools(tools: list[dict], args: argparse.Namespace) -> list[dict]:
-    """Apply --tag / --include / --exclude / --read-only filters."""
+    """Apply --tag / --include / --exclude / --read-only / --allow / --deny filters.
+
+    Policy layering, weakest to strongest:
+      1. --read-only keeps GET operations only (a heuristic, not a guarantee).
+      2. --allow PATH_REGEX re-includes operations that --read-only dropped
+         (e.g. read-style POST endpoints).
+      3. --deny PATH_REGEX always excludes, and wins over everything.
+    """
     include = [p.rstrip("/") for p in (args.include or [])]
     exclude = [p.rstrip("/") for p in (args.exclude or [])]
+    allow = [re.compile(p) for p in (getattr(args, "allow", None) or [])]
+    deny = [re.compile(p) for p in (getattr(args, "deny", None) or [])]
 
     def path_matches(path: str, patterns: list[str]) -> bool:
         return any(path == p or path.startswith(p + "/") for p in patterns)
 
+    def regex_matches(path: str, patterns: list[re.Pattern]) -> bool:
+        return any(p.search(path) for p in patterns)
+
     kept = []
     for tool in tools:
         meta = tool["_meta"]
-        if args.read_only and meta["method"] != "GET":
+        read_only_dropped = args.read_only and meta["method"] != "GET"
+        if read_only_dropped and not regex_matches(meta["path"], allow):
             continue
         if args.tag and args.tag not in (meta.get("tags") or []):
             continue
         if include and not path_matches(meta["path"], include):
             continue
         if exclude and path_matches(meta["path"], exclude):
+            continue
+        if regex_matches(meta["path"], deny):
             continue
         kept.append(tool)
     return kept
@@ -70,6 +86,10 @@ def main(argv: list[str] | None = None) -> None:
     p_list.add_argument("--include", action="append", help="only these path prefixes (repeatable)")
     p_list.add_argument("--exclude", action="append", help="skip these path prefixes (repeatable)")
     p_list.add_argument("--read-only", action="store_true", help="only GET operations")
+    p_list.add_argument("--allow", action="append", metavar="REGEX",
+                        help="re-include operations dropped by --read-only (repeatable)")
+    p_list.add_argument("--deny", action="append", metavar="REGEX",
+                        help="never expose matching paths, overrides --allow (repeatable)")
     p_list.add_argument("--json", action="store_true", help="machine-readable output")
 
     p_serve = sub.add_parser("serve", help="start the MCP stdio server")
@@ -89,6 +109,10 @@ def main(argv: list[str] | None = None) -> None:
     p_serve.add_argument("--include", action="append", help="only these path prefixes (repeatable)")
     p_serve.add_argument("--exclude", action="append", help="skip these path prefixes (repeatable)")
     p_serve.add_argument("--read-only", action="store_true", help="expose only GET operations")
+    p_serve.add_argument("--allow", action="append", metavar="REGEX",
+                         help="re-include operations dropped by --read-only (repeatable)")
+    p_serve.add_argument("--deny", action="append", metavar="REGEX",
+                         help="never expose matching paths, overrides --allow (repeatable)")
 
     p_doctor = sub.add_parser("doctor", help="inspect a spec and report problems")
     p_doctor.add_argument("spec", help="path or URL of an OpenAPI document")
