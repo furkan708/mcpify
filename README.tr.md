@@ -1,10 +1,10 @@
 <div align="center">
 
-# ⚡ mcpify
+# mcpify
 
 **OpenAPI dokümanı olan herhangi bir REST API'yi tek komutla MCP sunucusuna dönüştürün.**
 
-🌐 [Türkçe](README.tr.md) | [English](README.md)
+[Türkçe](README.tr.md) | [English](README.md)
 
 [![CI](https://github.com/furkan708/mcpify/actions/workflows/ci.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
@@ -57,13 +57,7 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 
 ## Öne çıkan özellikler
 
-| Özellik | Komut | Ne işe yarar |
-|---------|-------|--------------|
-| 🔒 Salt-okunur mod | `--read-only` | Yalnızca GET uçlarını açar; ajan (agent) okur, yazamaz |
-| 🔑 Kimlik doğrulama | `--auth-env API_TOKEN --auth-style bearer` | Anahtar ortam değişkeninden okunur; komut satırına veya config'e yazılmaz |
-| 🎯 Uç daraltma | `--tag`, `--include`, `--exclude` | Modele 200 yerine 5 araç gösterir → token tasarrufu |
-| 🩺 Doktor | `mcpify doctor ./openapi.json` | Spec'i denetler: eksik operationId, ölü server adresleri vb. |
-| ⏱️ Zaman aşımı | `--timeout 30` | API yavaşsa ajanı bekletmez |
+| Özellik | Komut | Ne işe yarar | |---------|-------|--------------| | Salt-okunur mod | `--read-only` | Yalnızca GET uçlarını açar; ajan (agent) okur, yazamaz | | Kimlik doğrulama | `--auth-env API_TOKEN --auth-style bearer` | Anahtar ortam değişkeninden okunur; komut satırına veya config'e yazılmaz | | Uç daraltma | `--tag`, `--include`, `--exclude` | Modele 200 yerine 5 araç gösterir → token tasarrufu | | Doktor | `mcpify doctor ./openapi.json` | Spec'i denetler: eksik operationId, ölü server adresleri vb. | | ⏱ Zaman aşımı | `--timeout 30` | API yavaşsa ajanı bekletmez |
 
 ## Neden önemli?
 
@@ -74,7 +68,7 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
   "bakabilirler ama dokunamazlar" demek, üretimde standart olmalı.
 - **Sıfır bakım:** Spec'iniz değişirse sunucu yeniden başlatıldığında araçlar otomatik güncellenir.
 
-## 🛡️ Gerçek dünyaya karşı sağlamlaştırıldı
+## Gerçek dünyaya karşı sağlamlaştırıldı
 
 Her sürümde 10 kategorilik denetim listesi yeniden koşulur: döngüsel `$ref`,
 multipart gövde, server URL değişkenleri, relative base URL, devasa yanıtlar —
@@ -86,18 +80,18 @@ Tam liste: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
 ## Test ve kalite
 
-- 🎯 **Agent-dostu yüzey** — HTTP'den türetilen tool annotation'ları, MCP
+- **Agent-dostu yüzey** — HTTP'den türetilen tool annotation'ları, MCP
   structured output, sonraki çağrıyı öğreten hata mesajları, dry-run önizleme
   ve api.weather.gov'da **%95,5** kazanç ölçen `--lazy` arama-sonra-çağır modu
-- ✅ **115 test** — birim + düşmanca spec korpusu + gerçek HTTP API'ye karşı
+- **115 test** — birim + düşmanca spec korpusu + gerçek HTTP API'ye karşı
   uçtan uca MCP protokol testleri, **canlı api.weather.gov dokümanı dahil**
-- ✅ **mypy strict** tip denetimi, **ruff** lint
-- ✅ CI her push'ta çalışır: [badge'e bakın](https://github.com/furkan708/mcpify/actions)
+- **mypy strict** tip denetimi, **ruff** lint
+- CI her push'ta çalışır: [badge'e bakın](https://github.com/furkan708/mcpify/actions)
 
 ## Dokümantasyon
 
-- 📖 [Kullanım Kılavuzu (İngilizce)](docs/USAGE.md) — auth desenleri, Docker, sorun giderme, SSS
-- 🏗️ [Mimari (İngilizce)](docs/ARCHITECTURE.md) — istek yaşam döngüsü, tasarım kararları
+- [Kullanım Kılavuzu (İngilizce)](docs/USAGE.md) — auth desenleri, Docker, sorun giderme, SSS
+- [Mimari (İngilizce)](docs/ARCHITECTURE.md) — istek yaşam döngüsü, tasarım kararları
 
 ## Katkı
 

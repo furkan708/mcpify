@@ -1,11 +1,11 @@
 <!-- mcp-name: io.github.furkan708/mcpify -->
 
-# 🔌 mcpify
+# mcpify
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-🌐 English | [Türkçe](README.tr.md)
+English | [Türkçe](README.tr.md)
 
 <p align="center">
   <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
@@ -36,35 +36,35 @@ mcpify serve https://your-company.com/openapi.json
 
 That's it — every endpoint just became a tool your AI agent can discover, understand, and call.
 
-📖 **Deep docs:** [Usage guide](docs/USAGE.md) — auth patterns, scoping, Docker, troubleshooting · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md)
+**Deep docs:** [Usage guide](docs/USAGE.md) — auth patterns, scoping, Docker, troubleshooting · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md)
 
-📰 **The launch story:** [How a live weather API broke this tool — and made it better](https://dev.to/furkan708/i-connected-a-real-weather-api-to-claude-in-3-commands-and-the-community-broke-my-tool-in-the-3jid)
+**The launch story:** [How a live weather API broke this tool — and made it better](https://dev.to/furkan708/i-connected-a-real-weather-api-to-claude-in-3-commands-and-the-community-broke-my-tool-in-the-3jid)
 
-## ✨ Why you'll like it
+## Why you'll like it
 
-- ⚡ **60 seconds to working** — point it at any OpenAPI 3.x spec (file or URL)
-- 🔐 **Credentials never touch the spec or the model** — pulled from your
+- **60 seconds to working** — point it at any OpenAPI 3.x spec (file or URL)
+- **Credentials never touch the spec or the model** — pulled from your
   environment at call time (`--auth-env`), sent as `Authorization: Bearer`,
   a custom header, or a query parameter
-- 🧰 **Every operation becomes a first-class MCP tool** — input schemas are
+- **Every operation becomes a first-class MCP tool** — input schemas are
   generated from `parameters` + `requestBody`, internal `$ref`s are resolved
-- 🎚️ **Scope it down** — `--read-only` (GET only), `--tag payments`,
+- **Scope it down** — `--read-only` (GET only), `--tag payments`,
   `--include /v1/orders`, `--exclude /admin`, plus a policy layer for real-world
   APIs: `--deny REGEX` hides mutating GETs, `--allow REGEX` re-includes
   read-style POST endpoints. Deny always wins.
-- 🩺 **`mcpify doctor`** — tells you if your spec is agent-friendly before you ship
-- 🪶 **Zero dependencies** — one pure-Python file tree; YAML specs need an
+- **`mcpify doctor`** — tells you if your spec is agent-friendly before you ship
+- **Zero dependencies** — one pure-Python file tree; YAML specs need an
   optional `pip install 'mcpify[yaml]'`
-- 🎯 **Agent-grade surface.** Tool annotations derived from HTTP semantics
+- **Agent-grade surface.** Tool annotations derived from HTTP semantics
   (clients auto-approve read-only tools), structured output via MCP
   `outputSchema`/`structuredContent`, remediation-grade errors that teach the
   next call, dry-run request previews, and a `--lazy` search-then-call mode
   that cut api.weather.gov's listing by **95.5%** (38,882 → 1,741 chars)
-- 🧪 **115 tests** — unit, hostile-spec corpus, and full MCP protocol
+- **115 tests** — unit, hostile-spec corpus, and full MCP protocol
   end-to-end over stdio against a real local HTTP API, including the
   **live api.weather.gov document** (69 tools, 16 enum'd parameters)
 
-## 🚀 Quick start
+## Quick start
 
 ```bash
 # run without installing (uvx — pulls from PyPI on demand)
@@ -102,13 +102,9 @@ mcpify serve petstore.json \
   --read-only
 ```
 
-| Flag | Meaning |
-| ---- | ------- |
-| `--auth-env VAR` | environment variable holding the credential |
-| `--auth-style bearer\|header\|query` | how it is sent |
-| `--auth-name NAME` | header / query name for non-bearer styles (e.g. `X-API-Key`) |
+| Flag | Meaning | | ---- | ------- | | `--auth-env VAR` | environment variable holding the credential | | `--auth-style bearer\|header\|query` | how it is sent | | `--auth-name NAME` | header / query name for non-bearer styles (e.g. `X-API-Key`) |
 
-## 🤖 Plug it into your agent
+## Plug it into your agent
 
 **Claude Code:**
 
@@ -131,23 +127,15 @@ claude mcp add my-api -- mcpify serve openapi.json --read-only
 
 Now ask your agent: *"list the pets, then create one named Milo"* — it discovers `list_pets` and `create_pet`, fills the arguments, and performs real HTTP calls.
 
-## 🔍 How operations become tools
+## How operations become tools
 
-| OpenAPI | mcpify |
-| ------- | ------ |
-| `operationId` | tool name (sanitized; falls back to `method_path`) |
-| `summary` / `description` | tool description the agent reads |
-| `deprecated: true` | shown by `mcpify list` before you expose old endpoints |
-| `parameters` (path/query/header) | individual typed arguments with enums |
-| `requestBody` (JSON) | a `body` object argument |
-| `$ref` pointers | resolved inline (components → real schemas) |
-| `servers[0].url` | default base URL (override: `--base-url`) |
+| OpenAPI | mcpify | | ------- | ------ | | `operationId` | tool name (sanitized; falls back to `method_path`) | | `summary` / `description` | tool description the agent reads | | `deprecated: true` | shown by `mcpify list` before you expose old endpoints | | `parameters` (path/query/header) | individual typed arguments with enums | | `requestBody` (JSON) | a `body` object argument | | `$ref` pointers | resolved inline (components → real schemas) | | `servers[0].url` | default base URL (override: `--base-url`) |
 
 The agent only ever sees the tool list and your API's JSON responses —
 mcpify adds no middleware, caches nothing, and sends credentials nowhere
 except your API.
 
-## 🩺 Doctor
+## Doctor
 
 ```bash
 $ mcpify doctor my-api.json
@@ -160,7 +148,7 @@ warning: 12/41 operations have no operationId (names fall back to method_path)
 warning: 30/41 operations have no summary (agents see no description)
 ```
 
-## 📖 CLI reference
+## CLI reference
 
 ```
 mcpify list <spec> [--tag T] [--include P] [--exclude P] [--read-only] [--json]
@@ -177,7 +165,7 @@ mcpify doctor <spec>
 - Request bodies are exposed as a single `body` object argument — predictable over clever
 - Spec versions: OpenAPI 3.x and Swagger 2.x roots are accepted; 3.x is the happy path
 
-## 🛡️ Hardened against the real world
+## Hardened against the real world
 
 mcpify is audited on every release against a 10-category checklist of MCP
 best practices and published production failure modes — not just our own
@@ -197,7 +185,7 @@ examples:
 
 Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
-## 🧪 Tests
+## Tests
 
 ```bash
 pip install pytest pyyaml
@@ -208,7 +196,7 @@ The e2e suite boots a real local HTTP API and drives the full MCP protocol
 over stdio — initialize → tools/list → tools/call — and asserts on the HTTP
 requests that hit the wire.
 
-## 🗂️ Project Structure
+## Project Structure
 
 ```
 mcpify/
@@ -222,12 +210,12 @@ mcpify/
 └── tests/
 ```
 
-## 🗺️ Roadmap
+## Roadmap
 
 - [ ] `--output-server FILE` — generate a standalone, shareable server script
 - [ ] Per-operation rate limiting
 - [ ] OAuth2 client-credentials flow
 
-## 📄 License
+## License
 
 MIT — see the [LICENSE](LICENSE) file for details.
