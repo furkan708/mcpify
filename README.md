@@ -102,7 +102,11 @@ mcpify serve petstore.json \
   --read-only
 ```
 
-| Flag | Meaning | | ---- | ------- | | `--auth-env VAR` | environment variable holding the credential | | `--auth-style bearer\|header\|query` | how it is sent | | `--auth-name NAME` | header / query name for non-bearer styles (e.g. `X-API-Key`) |
+| Flag | Meaning |
+| ---- | ------- |
+| `--auth-env VAR` | environment variable holding the credential |
+| `--auth-style bearer\|header\|query` | how it is sent |
+| `--auth-name NAME` | header / query name for non-bearer styles (e.g. `X-API-Key`) |
 
 ## Plug it into your agent
 
@@ -129,7 +133,15 @@ Now ask your agent: *"list the pets, then create one named Milo"* — it discove
 
 ## How operations become tools
 
-| OpenAPI | mcpify | | ------- | ------ | | `operationId` | tool name (sanitized; falls back to `method_path`) | | `summary` / `description` | tool description the agent reads | | `deprecated: true` | shown by `mcpify list` before you expose old endpoints | | `parameters` (path/query/header) | individual typed arguments with enums | | `requestBody` (JSON) | a `body` object argument | | `$ref` pointers | resolved inline (components → real schemas) | | `servers[0].url` | default base URL (override: `--base-url`) |
+| OpenAPI | mcpify |
+| ------- | ------ |
+| `operationId` | tool name (sanitized; falls back to `method_path`) |
+| `summary` / `description` | tool description the agent reads |
+| `deprecated: true` | shown by `mcpify list` before you expose old endpoints |
+| `parameters` (path/query/header) | individual typed arguments with enums |
+| `requestBody` (JSON) | a `body` object argument |
+| `$ref` pointers | resolved inline (components → real schemas) |
+| `servers[0].url` | default base URL (override: `--base-url`) |
 
 The agent only ever sees the tool list and your API's JSON responses —
 mcpify adds no middleware, caches nothing, and sends credentials nowhere
