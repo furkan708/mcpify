@@ -2,12 +2,12 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.furkan708/mcpify",
   "title": "mcpify",
-  "description": "Turn any OpenAPI REST API into an MCP server so AI agents can call it — a focused, production-ready CLI with zero runtime dependencies",
+  "description": "Focused, production-ready CLI: turn any OpenAPI REST API into an MCP server.",
   "repository": {
     "url": "https://github.com/furkan708/mcpify",
     "source": "github"
   },
-  "version": "1.5.2",
+  "version": "1.5.3",
   "packages": [
     {
       "registryType": "pypi",
