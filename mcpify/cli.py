@@ -169,6 +169,7 @@ def main(argv: list[str] | None = None) -> None:
                             "name": t["name"],
                             "method": t["_meta"]["method"],
                             "path": t["_meta"]["path"],
+                            "deprecated": t["_meta"]["deprecated"],
                             "description": t["description"],
                         }
                         for t in tools
@@ -191,11 +192,12 @@ def main(argv: list[str] | None = None) -> None:
         for tool in tools:
             meta = tool["_meta"]
             body = dim(" +body") if meta["has_body"] else ""
+            deprecated_badge = dim(" DEPRECATED") if meta["deprecated"] else ""
             desc = tool["description"]
             desc = desc[len(meta["method"]) + 3:] if desc.startswith("[") else desc
             print(
                 f"  {cyan(tool['name']):36} {green(meta['method']):8} "
-                f"{meta['path']}{body}"
+                f"{meta['path']}{body}{deprecated_badge}"
             )
             if desc:
                 print(f"  {'':36} {dim(desc[:90])}")

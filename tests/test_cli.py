@@ -45,6 +45,37 @@ def test_list_json(capsys):
     payload = json.loads(capsys.readouterr().out)
     assert {p["method"] for p in payload} <= {"GET", "POST", "DELETE"}
     assert len(payload) == 7
+    assert all(p["deprecated"] is False for p in payload)
+
+
+def test_list_marks_deprecated_operations(tmp_path, capsys):
+    spec_path = tmp_path / "deprecated.json"
+    spec_path.write_text(
+        json.dumps(
+            {
+                "openapi": "3.0.0",
+                "info": {"title": "A", "version": "1"},
+                "servers": [{"url": "https://api.example.test"}],
+                "paths": {
+                    "/old": {
+                        "get": {
+                            "operationId": "old",
+                            "summary": "Old endpoint",
+                            "deprecated": True,
+                            "responses": {"200": {"description": "ok"}},
+                        }
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    main(["list", str(spec_path)])
+    assert "DEPRECATED" in capsys.readouterr().out
+
+    main(["list", str(spec_path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload[0]["deprecated"] is True
 
 
 def test_list_zero_tools_fails(tmp_path):

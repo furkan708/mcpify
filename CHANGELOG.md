@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `mcpify list` marks deprecated OpenAPI operations and includes a
+  `deprecated` flag in JSON output.
+
 ### Planned
 - See the Roadmap section in the README.
 

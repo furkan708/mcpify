@@ -132,6 +132,7 @@ Now ask your agent: *"list the pets, then create one named Milo"* — it discove
 | ------- | ------ |
 | `operationId` | tool name (sanitized; falls back to `method_path`) |
 | `summary` / `description` | tool description the agent reads |
+| `deprecated: true` | shown by `mcpify list` before you expose old endpoints |
 | `parameters` (path/query/header) | individual typed arguments with enums |
 | `requestBody` (JSON) | a `body` object argument |
 | `$ref` pointers | resolved inline (components → real schemas) |
