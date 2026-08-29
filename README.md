@@ -24,7 +24,9 @@ English | [Türkçe](README.tr.md)
 [![Run with uvx](https://img.shields.io/badge/run%20with-uvx-DE5FE9)](https://docs.astral.sh/uv/)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-success)
 
-**Turn any OpenAPI REST API into an [MCP](https://modelcontextprotocol.io) server** — so Claude Code, Cursor, and every other MCP client can call your API directly. One command. Zero dependencies.
+**Turn any OpenAPI REST API into an [MCP](https://modelcontextprotocol.io) server** — so Claude Code, Cursor, and every other MCP client can call your API directly.
+
+mcpify is **focused, production-ready, and CLI-first**: one job (OpenAPI → MCP), one interface (a single command over stdio), zero runtime dependencies. Focused doesn't mean small — 162 tests across eleven suites, dual MCP-spec compatibility, a policy layer, caching, safe retries, and health probes back that one job.
 
 
 Your company has a REST API. Your AI agent needs to call it. Until now that
@@ -59,8 +61,8 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   verbose/log-file logging with masked credentials, XML→JSON conversion,
   strict argument mode, origin auto-discovery, legacy batch tolerance, and
   a health probe (`mcpify status` / `mcpify_health`)
-- **Zero dependencies** — one pure-Python file tree; YAML specs need an
-  optional `pip install 'mcpify[yaml]'`
+- **Zero runtime dependencies** — the entire tree is auditable stdlib
+  Python; YAML specs need an optional `pip install 'mcpify[yaml]'`
 - **Agent-grade surface.** Tool annotations derived from HTTP semantics
   (clients auto-approve read-only tools), structured output via MCP
   `outputSchema`/`structuredContent`, remediation-grade errors that teach the

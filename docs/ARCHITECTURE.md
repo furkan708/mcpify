@@ -129,3 +129,12 @@ Three decisions shape v1.2.0:
 3. **Names are reserved.** Meta tools (`mcpify_*`) are claimed in
    `spec_to_tools` before operation IDs, so a colliding spec operation
    suffixes (`_2`) instead of shadowing the search/call surface.
+
+## Scope statement
+
+mcpify is intentionally focused: one job (OpenAPI → MCP), one interface
+(a single CLI over stdio), zero runtime dependencies. Focused is a
+scope decision, not a size claim — the operational layer (config
+files, caching, retries, health, batch tolerance) exists to make that
+one job production-ready, and everything outside the job (gateways,
+GUIs, remote transports) is deliberately someone else's layer.

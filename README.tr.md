@@ -68,6 +68,10 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 
 ## Neden önemli?
 
+- **Odaklı ve üretim hazırı:** Tek iş (OpenAPI → MCP), tek arayüz (stdio
+  üzerinde tek komut), sıfır runtime bağımlılığı. Odaklılık küçüklük demek değil:
+  11 pakette 162 test, çift MCP-spec uyumu, politika katmanı, cache, güvenli
+  retry ve health sorgusu bu tek işi destekliyor.
 - **Token bütçesi:** Her araç tanımı modelin bağlam penceresini (context) tüketir.
   mcpify'ın filtreleriyle yalnızca ilgili uçları açarsınız; CLI tabanlı yaklaşımlardan
   belirgin biçimde daha az token harcarsınız.
