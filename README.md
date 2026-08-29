@@ -38,6 +38,8 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
 
 📖 **Deep docs:** [Usage guide](docs/USAGE.md) — auth patterns, scoping, Docker, troubleshooting · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md)
 
+📰 **The launch story:** [How a live weather API broke this tool — and made it better](https://dev.to/furkan708/i-connected-a-real-weather-api-to-claude-in-3-commands-and-the-community-broke-my-tool-in-the-3jid)
+
 ## ✨ Why you'll like it
 
 - ⚡ **60 seconds to working** — point it at any OpenAPI 3.x spec (file or URL)
