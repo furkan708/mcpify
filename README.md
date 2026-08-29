@@ -11,7 +11,7 @@ English | [Türkçe](README.tr.md)
   <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
 </p>
 
-[![Tests](https://img.shields.io/badge/tests-121%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-162%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
 [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/ci.yml)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-4A90D9)](server.json)
@@ -53,6 +53,12 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   APIs: `--deny REGEX` hides mutating GETs, `--allow REGEX` re-includes
   read-style POST endpoints. Deny always wins.
 - **`mcpify doctor`** — tells you if your spec is agent-friendly before you ship
+- **Operational, not just functional.** `mcpify init` wizard + `.mcpify.toml`
+  configs with per-environment sections, GET response caching (`--cache-ttl`),
+  safe retries (`--retry` — idempotent methods only, 502/503/504 only),
+  verbose/log-file logging with masked credentials, XML→JSON conversion,
+  strict argument mode, origin auto-discovery, legacy batch tolerance, and
+  a health probe (`mcpify status` / `mcpify_health`)
 - **Zero dependencies** — one pure-Python file tree; YAML specs need an
   optional `pip install 'mcpify[yaml]'`
 - **Agent-grade surface.** Tool annotations derived from HTTP semantics
@@ -60,7 +66,7 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   `outputSchema`/`structuredContent`, remediation-grade errors that teach the
   next call, dry-run request previews, and a `--lazy` search-then-call mode
   that cut api.weather.gov's listing by **95.5%** (38,882 → 1,741 chars)
-- **121 tests across ten suites** — including a full MCP protocol run
+- **162 tests across eleven suites** — including a full MCP protocol run
   over stdio against a real local HTTP API and the **live
   api.weather.gov document** (69 tools, 16 enum'd parameters)
 
@@ -69,6 +75,9 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
 ```bash
 # run without installing (uvx — pulls from PyPI on demand)
 uvx --from mcpify-openapi mcpify list ./openapi.json --read-only
+
+# first time? the wizard writes a config for you
+uvx --from mcpify-openapi mcpify init
 
 # or install (installs the `mcpify` command)
 pipx install mcpify-openapi
@@ -199,7 +208,7 @@ Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHEC
 
 ## Tests
 
-**121 passing**, plus one live-integration test that loads the real
+**162 passing**, plus one live-integration test that loads the real
 api.weather.gov document (auto-skipped when offline). Every suite runs on
 Python 3.10–3.12 across Linux and Windows; `ruff`, strict `mypy` and
 CodeQL gate every push.
@@ -215,6 +224,7 @@ CodeQL gate every push.
 | Protocol end-to-end | 9 | real JSON-RPC over stdio against a live local HTTP API, wire-level assertions |
 | Policy layer | 7 | `--read-only`, `--allow` / `--deny` precedence, mutating-GET protection |
 | `$ref` parameters | 4 | parameter schemas resolved against the full spec — the weather.gov bug class (one test hits the live document) |
+| Ops & configuration | 41 | config files + env precedence, init wizard, cache TTL & bounds, retry safety, XML conversion, discovery, batching, status/health |
 | Protocol version compat | 5 | 2026-07-28 stateless `_meta` requests and the legacy 2025-06-18 handshake, on the same wire |
 
 Policy on failures: every bug found in the wild becomes a pinned

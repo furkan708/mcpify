@@ -196,15 +196,14 @@ Notes for production:
 - Run `mcpify doctor` to see how many operations lack ids/summaries —
   fixing those makes agent interaction dramatically better.
 
-### Deliberate omissions: retries, rate limits, circuit breakers
+### Deliberate omissions
 
-mcpify intentionally does **not** retry failed calls, rate-limit, or apply
-circuit breakers. Retrying a non-idempotent POST can duplicate side effects;
-those protections belong at the API gateway in front of your service, where
-they can be configured per-endpoint with real observability. mcpify limits
-blast radius instead: read-only mode, deny/allow policies, explicit timeouts
-(`--timeout`), and truncated responses so no single call floods the context.
-
+- **Automatic retries are opt-in and conservative.** `--retry N` re-attempts
+  idempotent requests (GET/PUT/DELETE) only, and only on 502/503/504 or
+  connection failures, capped at 5. POST/PATCH are **never** retried —
+  a non-idempotent retry can duplicate side effects. Rate limiting and
+  circuit breaking remain gateway territory (they need shared state and
+  observability a single stdio process should not fake).
 ## 7. Troubleshooting
 
 | Symptom | Cause / fix |
@@ -332,3 +331,100 @@ Both generations, on the same stdio wire:
 
 Nothing to configure; the server detects which generation the client
 speaks per request.
+
+
+## Configuration file
+
+Serve settings can live in a config file: `.mcpify.toml` (preferred),
+`.mcpify.yaml` (needs the `mcpify[yaml]` extra) or `.mcpify.json`.
+mcpify auto-discovers them in the current directory, or take an explicit
+one with `--config`:
+
+```toml
+# .mcpify.toml
+[serve]
+spec = "openapi.json"
+base-url = "https://staging.example.com"
+auth-env = "API_TOKEN"
+auth-style = "bearer"
+read-only = true
+cache-ttl = 30
+retry = 2
+
+[envs.prod]
+base-url = "https://api.example.com"
+read-only = true
+
+[envs.dev]
+base-url = "http://localhost:8080"
+read-only = false
+```
+
+```bash
+mcpify serve --env prod     # flags > [envs.prod] > [serve] > defaults
+```
+
+Unknown keys are reported as warnings (typos never vanish silently).
+Every setting maps 1:1 to a CLI flag; flags always win.
+
+## `mcpify init` — setup wizard
+
+```bash
+mcpify init
+```
+
+Asks for the spec (bare origins are auto-discovered), base URL, auth
+style and env variable, read-only mode, cache/retry, and writes
+`.mcpify.toml`. Prefill any answer with `--spec` / `--base-url`.
+
+## Operational flags
+
+```bash
+mcpify serve spec.json \
+  --verbose \          # per-call log lines on stderr
+  --log-file ops.log \  # same lines appended to a file
+  --cache-ttl 30 \      # GET+200 responses cached in memory for 30s
+  --retry 3 \           # idempotent requests retried on 502/503/504
+  --retry-delay 1 \
+  --strict \            # every advertised argument becomes required
+  --format auto          # XML responses (per Content-Type) become JSON
+```
+
+- **Logging** never touches the JSON-RPC stream; URLs are logged without
+  query strings and `Authorization` values are masked. Response bodies
+  are excerpted (first 1000 chars) — point `--log-file` somewhere private.
+- **Cache** is in-memory, bounded (256 entries), GET+200 only. Distinct
+  arguments are distinct entries; expiry is per-TTL.
+- **Retry** is idempotent-only by design (see Deliberate omissions).
+- **`--format auto`** trusts the response Content-Type; `xml` forces
+  conversion even without the header. Namespaces are simplified —
+  this is an agent convenience, not a lossless XML tool.
+
+## Auto-discovery
+
+```bash
+mcpify serve https://api.example.com
+```
+
+A bare origin is probed for `/.well-known/openapi.json`, `/openapi.json`,
+`/swagger.json`, `/openapi.yaml` and `/api-docs`. Nothing found → a clear
+error listing every path tried.
+
+## Batch requests (legacy tolerance)
+
+The current MCP spec removed JSON-RPC batching, but some gateways still
+send arrays. mcpify accepts a JSON array on one stdio line, processes
+notifications in order, and runs same-batch `tools/call` entries
+concurrently (thread pool, locked cache).
+
+## Health & status
+
+```bash
+mcpify status openapi.json          # reachability, tool count, auth env
+mcpify status https://api.example.com --json
+```
+
+Exit code 0 when the API answered, 2 when unreachable. Inside a session,
+the `mcpify_health` tool (listed in every mode) returns the same report:
+`api_reachable`, `api_status`, latency, tool count, cache/retry settings,
+and whether the auth env variable is actually set.

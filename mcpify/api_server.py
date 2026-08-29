@@ -19,10 +19,12 @@ from __future__ import annotations
 import json
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from . import __version__ as SERVER_VERSION  # never hardcode: avoids version drift
-from .http_client import execute, format_result, remediation
+from .convert import convert as convert_format
+from .http_client import ResponseCache, execute, format_result, remediation
 from .tools import META_TOOL_NAMES, AuthConfig, RequestError, build_request, spec_to_tools
 
 PROTOCOL_VERSION = "2025-06-18"
@@ -35,6 +37,7 @@ SEARCH_TOOL = "mcpify_search_tools"
 SCHEMA_TOOL = "mcpify_get_tool_schema"
 CALL_TOOL = "mcpify_call_tool"
 PREVIEW_TOOL = "mcpify_preview_request"
+HEALTH_TOOL = "mcpify_health"
 
 
 def _public(tool: dict) -> dict:
@@ -65,6 +68,10 @@ class ApiServer:
         tools: list[dict] | None = None,
         lazy: bool = False,
         enable_preview: bool = False,
+        cache_ttl: float = 0.0,
+        retry: int = 0,
+        retry_delay: float = 1.0,
+        response_format: str = "auto",
     ) -> None:
         self.spec = spec
         self.base_url = base_url
@@ -84,6 +91,10 @@ class ApiServer:
                 "tool names collide with reserved meta tools: " + ", ".join(shadowed)
             )
         self.known_paths = sorted({tool["_meta"]["path"] for tool in self.tools})
+        self.cache = ResponseCache(cache_ttl) if cache_ttl and cache_ttl > 0 else None
+        self.retry = retry
+        self.retry_delay = retry_delay
+        self.response_format = response_format
         self.meta_tools: dict[str, dict] = {t["name"]: t for t in self._build_meta_tools()}
         if lazy:
             listed = [SEARCH_TOOL, SCHEMA_TOOL, CALL_TOOL]
@@ -91,6 +102,7 @@ class ApiServer:
             listed = [tool["name"] for tool in self.tools]
         if enable_preview:
             listed.append(PREVIEW_TOOL)
+        listed.append(HEALTH_TOOL)
         self.listed_names = listed
         self._initialized = False
 
@@ -166,7 +178,17 @@ class ApiServer:
             "annotations": _annotations(True, False, False, True, "Preview request"),
             "_local": True,
         }
-        return [search, schema_tool, call, preview]
+        health = {
+            "name": HEALTH_TOOL,
+            "description": (
+                "Check that the upstream API is reachable and report this "
+                "server's own configuration (tool count, cache, retry, auth)."
+            ),
+            "inputSchema": {"type": "object", "properties": {}, "required": []},
+            "annotations": _annotations(True, False, False, True, "Health check"),
+            "_local": True,
+        }
+        return [search, schema_tool, call, preview, health]
 
     # -- public API used by the CLI --------------------------------------
     @property
@@ -198,7 +220,13 @@ class ApiServer:
         request = build_request(self.base_url, tool["_meta"], arguments, self.auth)
         if self.auth is not None:
             request["url"] = self.auth.apply_query(request["url"])
-        result = execute(request, timeout=self.timeout)
+        result = execute(
+            request,
+            timeout=self.timeout,
+            cache=self.cache,
+            retry=self.retry,
+            retry_delay=self.retry_delay,
+        )
         return self._payload_for(tool, result)
 
     def _payload_for(self, tool: dict, result: dict) -> dict:
@@ -207,6 +235,12 @@ class ApiServer:
             text, _ = format_result(result)
             extra = remediation(result, tool, self.known_paths)
             return self._text(text + extra, is_error=True)
+
+        if self.response_format in ("auto", "xml"):
+            content_type = (result.get("headers") or {}).get("Content-Type", "")
+            text, converted = convert_format(result["body"], result["json"], content_type, self.response_format)
+            if converted is not None and converted is not result["json"]:
+                result = {**result, "body": text, "json": converted}
 
         schema = tool.get("outputSchema")
         if schema is not None:
@@ -238,7 +272,46 @@ class ApiServer:
             return self._lazy_call(arguments)
         if name == PREVIEW_TOOL:
             return self._preview(arguments)
+        if name == HEALTH_TOOL:
+            return self._health()
         raise KeyError(name)  # unreachable: meta_tools keys are exactly these
+
+    def _health(self) -> dict:
+        import os
+        import time as _time
+
+        started = _time.monotonic()
+        probe = execute(
+            {"method": "GET", "url": self.base_url.rstrip("/") + "/", "headers": {"Accept": "application/json"}, "body": None},
+            timeout=min(self.timeout, 10.0),
+            retry=self.retry,
+            retry_delay=self.retry_delay,
+        )
+        latency = _time.monotonic() - started
+        reachable = probe["status"] != 0
+        auth = None
+        if self.auth is not None:
+            auth = {
+                "style": self.auth.style,
+                "env": self.auth.env_var,
+                "env_set": bool(os.environ.get(self.auth.env_var)),
+            }
+        report = {
+            "api_reachable": reachable,
+            "api_status": probe["status"],
+            "latency_seconds": round(latency, 3),
+            "base_url": self.base_url,
+            "tools": len(self.tools),
+            "cache_ttl": self.cache.ttl if self.cache else 0,
+            "retry": self.retry,
+            "format": self.response_format,
+            "auth": auth,
+        }
+        text = json.dumps(report, ensure_ascii=False, indent=2)
+        if reachable:
+            return self._text(text)
+        report["hint"] = "the API did not answer — check base URL, network, or --timeout"
+        return self._text(json.dumps(report, ensure_ascii=False, indent=2), is_error=True)
 
     # -- lazy mode internals ---------------------------------------------
     @staticmethod
@@ -433,11 +506,39 @@ class ApiServer:
                 decoded = json.loads(line)
             except json.JSONDecodeError:
                 response = self._error(None, -32700, "parse error")
-            else:
-                response = self.handle_message(decoded)
+                output_stream.write(json.dumps(response, ensure_ascii=False) + "\n")
+                output_stream.flush()
+                continue
+            if isinstance(decoded, list):
+                for item in self._handle_batch(decoded):
+                    if item is not None:
+                        output_stream.write(json.dumps(item, ensure_ascii=False) + "\n")
+                        output_stream.flush()
+                continue
+            response = self.handle_message(decoded)
             if response is not None:
                 output_stream.write(json.dumps(response, ensure_ascii=False) + "\n")
                 output_stream.flush()
+
+    def _handle_batch(self, items: list) -> list:
+        """Legacy JSON-RPC batching: an array of requests on one line.
+
+        The current MCP spec removed batching, but gateways still emit
+        it; tolerate it. Notifications are processed in order first
+        (state must be settled), then request calls — all tools/call
+        entries run concurrently in a small thread pool (safe: the cache
+        is locked, execute() is per-call state).
+        """
+        notifications = [item for item in items if isinstance(item, dict) and str(item.get("method", "")).startswith("notifications/")]
+        requests = [item for item in items if isinstance(item, dict) and not str(item.get("method", "")).startswith("notifications/")]
+        for item in notifications:
+            self.handle_message(item)
+        if not requests:
+            return []
+        if len(requests) == 1 or not all(item.get("method") == "tools/call" for item in requests):
+            return [self.handle_message(item) for item in requests]
+        with ThreadPoolExecutor(max_workers=min(8, len(requests))) as pool:
+            return list(pool.map(self.handle_message, requests))
 
 
 def serve(
@@ -449,6 +550,10 @@ def serve(
     tools: list[dict] | None = None,
     lazy: bool = False,
     enable_preview: bool = False,
+    cache_ttl: float = 0.0,
+    retry: int = 0,
+    retry_delay: float = 1.0,
+    response_format: str = "auto",
 ) -> None:
     """Load the spec and block on the stdio loop (the `mcpify serve` entry)."""
     from .spec import load_spec
@@ -463,4 +568,8 @@ def serve(
         tools=tools,
         lazy=lazy,
         enable_preview=enable_preview,
+        cache_ttl=cache_ttl,
+        retry=retry,
+        retry_delay=retry_delay,
+        response_format=response_format,
     ).serve()

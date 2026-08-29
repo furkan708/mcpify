@@ -10,6 +10,8 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
 ## 1. Server setup & dependencies
 - ✅ Zero runtime dependencies; dev floors pinned with sane minimums
 - ✅ Version surfaced from package metadata (no drift)
+- ✅ Config file support: `.mcpify.toml`/`.yaml`/`.json`, per-environment
+  sections, CLI-flags-wins precedence, unknown-key warnings
 - ✅ Installs via `pipx install mcpify-openapi` (PATH-ready command)
 - ✅ Cross-platform CI: **Linux + Windows** matrices
 - ✅ No dependency conflicts possible (stdlib only)
@@ -37,6 +39,9 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
 - ✅ Responses truncated at ~40k chars (context-blast guard)
 - ✅ Structured output: outputSchema only when the spec documents 2xx JSON;
   structuredContent delivered with back-compat text; non-JSON body → tool error
+- ✅ Opt-in GET caching (`--cache-ttl`, bounded, GET+200), safe retries
+  (idempotent-only, 502/503/504, capped), XML→JSON conversion, strict
+  argument mode, legacy JSON-RPC batch tolerance
 - ✅ Remediation-grade errors: validation details, auth hints, Retry-After,
   closest-path suggestions on 404
 - ✅ Lazy mode (`--lazy`): 95.5% listing reduction measured on api.weather.gov
@@ -81,7 +86,7 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
   non-idempotent retries belong at the gateway (rationale in USAGE.md)
 
 ## 10. Test & validation
-- ✅ **121 passing tests across ten suites** (122 collected; one
+- ✅ **162 passing tests across eleven suites** (163 collected; one
   live-integration test auto-skips offline) — full matrix in the README
 - ✅ Quality gates on every push: ruff, mypy `strict`, CodeQL,
   Python 3.10–3.12 × Linux + Windows

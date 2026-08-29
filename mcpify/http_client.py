@@ -1,4 +1,12 @@
-"""Execute built HTTP requests with urllib; never raises on HTTP >= 400."""
+"""Execute built HTTP requests with urllib; never raises on HTTP >= 400.
+
+Operational add-ons, all opt-in and all stdlib:
+- response cache (--cache-ttl): in-memory, GET+200 only, bounded size
+- retry (--retry): idempotent methods only, 502/503/504 and connection
+  failures only — POST/PATCH are NEVER retried (side effects)
+- verbose / --log-file: stderr and/or file logging; URLs without query
+  strings, Authorization values masked, bodies only as size-capped text
+"""
 
 from __future__ import annotations
 
@@ -6,27 +14,119 @@ import contextlib
 import json
 import os
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 
 _DEBUG = os.environ.get("MCPIFY_DEBUG") == "1"
+_VERBOSE = False
+_LOG_FILE = None
+_LOG_LOCK = threading.Lock()
+
+
+def set_logging(verbose: bool = False, log_file: str | None = None) -> None:
+    """Enable --verbose (stderr detail) and/or --log-file. Called once
+    from the CLI before serving; keep stdout untouched either way."""
+    global _VERBOSE, _LOG_FILE
+    _VERBOSE = verbose
+    _LOG_FILE = log_file
 
 
 def _log(level: str, message: str) -> None:
-    """Optional stderr logging (MCPIFY_DEBUG=1). NEVER touches stdout:
-    the JSON-RPC stream must stay clean. URLs are logged without query
-    strings so query-style auth credentials never hit the log."""
-    if _DEBUG:
-        print(f"{level} mcpify: {message}", file=sys.stderr, flush=True)
+    """Optional stderr logging (MCPIFY_DEBUG=1 or --verbose). NEVER
+    touches stdout: the JSON-RPC stream must stay clean. URLs are logged
+    without query strings so query-style auth credentials never hit the
+    log or the file."""
+    if not (_DEBUG or _VERBOSE):
+        return
+    line = f"{level} mcpify: {message}"
+    with _LOG_LOCK:
+        print(line, file=sys.stderr, flush=True)
+        if _LOG_FILE:
+            with contextlib.suppress(OSError), open(_LOG_FILE, "a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
 
 
-def execute(request: dict, timeout: float = 30.0) -> dict:
-    """Perform the request and return {status, body, json}.
+def _mask(headers: dict) -> dict:
+    masked = {}
+    for key, value in (headers or {}).items():
+        if key.lower() in ("authorization", "x-api-key", "api-key"):
+            masked[key] = value.split(" ", 1)[0] + " ***" if " " in value else "***"
+        else:
+            masked[key] = value
+    return masked
+
+
+RETRYABLE_STATUS = frozenset({502, 503, 504})
+IDEMPOTENT_METHODS = frozenset({"GET", "PUT", "DELETE"})
+MAX_RETRIES = 5          # hard cap however large --retry is
+MAX_CACHE_ENTRIES = 256
+
+
+class ResponseCache:
+    """Tiny TTL cache for GET+200 results. Thread-safe, bounded."""
+
+    def __init__(self, ttl: float) -> None:
+        self.ttl = ttl
+        self._store: dict = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: str) -> dict | None:
+        now = time.monotonic()
+        with self._lock:
+            entry = self._store.get(key)
+            if entry and entry["expires"] > now:
+                return entry["result"]
+            if entry:
+                del self._store[key]
+        return None
+
+    def put(self, key: str, result: dict) -> None:
+        with self._lock:
+            if len(self._store) >= MAX_CACHE_ENTRIES:
+                oldest = min(self._store, key=lambda k: self._store[k]["expires"])
+                del self._store[oldest]
+            self._store[key] = {"expires": time.monotonic() + self.ttl, "result": result}
+
+
+def execute(
+    request: dict,
+    timeout: float = 30.0,
+    cache: ResponseCache | None = None,
+    retry: int = 0,
+    retry_delay: float = 1.0,
+) -> dict:
+    """Perform the request and return {status, body, json, headers}.
 
     HTTP errors (4xx/5xx) are returned as results instead of raising, so
-    the agent can see API error payloads and react to them.
+    the agent can see API error payloads and react to them. With a cache
+    attached, GET+200 answers are served from memory within the TTL. With
+    retry > 0, idempotent methods are re-attempted on 502/503/504 and on
+    connection failures — never on 4xx, never for POST/PATCH.
     """
+    attempts = max(0, min(retry, MAX_RETRIES))
+    result = {}
+    for attempt in range(attempts + 1):
+        result = _execute_once(request, timeout, cache)
+        method = request.get("method", "GET").upper()
+        retryable = result["status"] in RETRYABLE_STATUS or result["status"] == 0
+        if attempt < attempts and retryable and method in IDEMPOTENT_METHODS:
+            _log("WARNING", f"retry {attempt + 1}/{attempts} for {method} "
+                            f"(status {result['status']}, waiting {retry_delay}s)")
+            time.sleep(retry_delay)
+            continue
+        return result
+    return result  # unreachable; keeps mypy happy
+
+
+def _execute_once(request: dict, timeout: float, cache: ResponseCache | None = None) -> dict:
+    cache_key = request.get("method", "GET").upper() + " " + request["url"]
+    if cache is not None and request.get("method", "GET").upper() == "GET":
+        hit = cache.get(cache_key)
+        if hit is not None:
+            _log("INFO", f"cache hit {request['url'].split('?', 1)[0]}")
+            return hit
     data = request.get("body")
     url_guvenli = request["url"].split("?", 1)[0]
     req = urllib.request.Request(
@@ -64,7 +164,13 @@ def execute(request: dict, timeout: float = 30.0) -> dict:
     parsed = None
     with contextlib.suppress(json.JSONDecodeError, ValueError):
         parsed = json.loads(raw)
-    return {"status": status, "body": raw, "json": parsed, "headers": headers}
+    if _VERBOSE and raw:
+        excerpt = raw[:1000]
+        _log("INFO", f"response {status} from {url_guvenli} ({len(raw)} bytes): {excerpt}")
+    result = {"status": status, "body": raw, "json": parsed, "headers": headers}
+    if cache is not None and request.get("method", "GET").upper() == "GET" and status == 200:
+        cache.put(cache_key, result)
+    return result
 
 
 MAX_RESULT_CHARS = 40_000

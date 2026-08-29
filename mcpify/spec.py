@@ -142,3 +142,45 @@ def spec_servers(spec: dict) -> list[str]:
     """Return the declared server URLs (may be empty)."""
     servers = spec.get("servers") or []
     return [s.get("url", "") for s in servers if isinstance(s, dict)]
+
+
+# Well-known locations probed for a bare origin URL ("https://api.x.com").
+DISCOVERY_PATHS = (
+    "/.well-known/openapi.json",
+    "/openapi.json",
+    "/swagger.json",
+    "/openapi.yaml",
+    "/api-docs",
+)
+
+
+def discover_spec(url: str, timeout: float = 5.0) -> tuple[str, str]:
+    """Probe a bare origin for a served OpenAPI document.
+
+    Returns (document_url, hint). hint is empty when the first candidate
+    wins; otherwise it lists the paths that were tried, so a failed
+    discovery produces an actionable message instead of a guess.
+    """
+    from urllib.parse import urlparse
+    from urllib.request import urlopen
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or parsed.path not in ("", "/"):
+        return url, ""
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    tried: list[str] = []
+    for path in DISCOVERY_PATHS:
+        candidate = origin + path
+        tried.append(path)
+        try:
+            with urlopen(candidate, timeout=timeout) as response:
+                head = response.read(4096).decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001 — any failure just means "not here"
+            continue
+        lowered = head.lower()
+        if '"openapi"' in lowered or '"swagger"' in lowered or "openapi:" in lowered or "swagger:" in lowered:
+            return candidate, ""
+    raise SpecError(
+        f"no OpenAPI document found at {origin} — tried {', '.join(tried)}. "
+        "Pass the document URL explicitly (e.g. " + origin + "/openapi.json)."
+    )

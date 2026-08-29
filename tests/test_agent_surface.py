@@ -12,6 +12,7 @@ import pytest
 
 from mcpify.api_server import (
     CALL_TOOL,
+    HEALTH_TOOL,
     PREVIEW_TOOL,
     SCHEMA_TOOL,
     SEARCH_TOOL,
@@ -337,9 +338,9 @@ def test_remediation_404_suggests_closest_paths_directly(base):
 # 4. lazy mode: search -> schema -> call
 # ---------------------------------------------------------------------------
 
-def test_lazy_listing_is_exactly_three_meta_tools(base):
+def test_lazy_listing_is_three_core_meta_tools_plus_health(base):
     names = set(listing(make(base, lazy=True)))
-    assert names == {SEARCH_TOOL, SCHEMA_TOOL, CALL_TOOL}
+    assert names == {SEARCH_TOOL, SCHEMA_TOOL, CALL_TOOL, HEALTH_TOOL}
 
 
 def test_preview_absent_without_flag_and_present_with_it(base):

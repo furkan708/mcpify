@@ -20,6 +20,7 @@ META_TOOL_NAMES = frozenset({
     "mcpify_get_tool_schema",
     "mcpify_call_tool",
     "mcpify_preview_request",
+    "mcpify_health",
 })
 
 
@@ -126,6 +127,7 @@ def build_input_schema(
     request_schema: dict | None,
     spec: dict | None = None,
     raw_body_content_type: str | None = None,
+    strict: bool = False,
 ) -> dict:
     """Build the JSON Schema for an MCP tool from parameters + request body.
 
@@ -183,10 +185,15 @@ def build_input_schema(
                 **({"required": request_schema["required"]} if request_schema.get("required") else {}),
             }
 
+    if strict:
+        # --strict: advertise every argument as required so the agent gets
+        # a validation error instead of a silent optional-skip at the API
+        required = list(properties)
+
     return {"type": "object", "properties": properties, "required": required}
 
 
-def operation_to_tool(method: str, path: str, operation: dict, path_item: dict, spec: dict, taken: set) -> dict:
+def operation_to_tool(method: str, path: str, operation: dict, path_item: dict, spec: dict, taken: set, strict: bool = False) -> dict:
     """Return an MCP tool descriptor for one OpenAPI operation."""
     parameters = extract_parameters(operation, path_item, spec)
 
@@ -220,7 +227,8 @@ def operation_to_tool(method: str, path: str, operation: dict, path_item: dict, 
         "name": name,
         "description": build_description(method, path, operation),
         "inputSchema": build_input_schema(
-            method.upper(), operation, parameters, request_schema, spec, raw_body_content_type
+            method.upper(), operation, parameters, request_schema, spec, raw_body_content_type,
+            strict=strict,
         ),
         "annotations": annotations_for(method, operation),
         "_meta": {
@@ -239,7 +247,7 @@ def operation_to_tool(method: str, path: str, operation: dict, path_item: dict, 
     return tool
 
 
-def spec_to_tools(spec: dict) -> list[dict]:
+def spec_to_tools(spec: dict, strict: bool = False) -> list[dict]:
     """Convert every operation in the spec into MCP tool descriptors."""
     from .spec import iter_operations
 
@@ -249,7 +257,7 @@ def spec_to_tools(spec: dict) -> list[dict]:
         if method.lower() in ("head", "options", "trace"):
             continue  # no agent value; they carry no request semantics
         path_item = spec["paths"][path]
-        tools.append(operation_to_tool(method, path, operation, path_item, spec, taken))
+        tools.append(operation_to_tool(method, path, operation, path_item, spec, taken, strict))
     return tools
 
 

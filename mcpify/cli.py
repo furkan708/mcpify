@@ -7,10 +7,14 @@ import json
 import os
 import re
 import sys
+import time
+from collections.abc import Iterator
+from pathlib import Path
 from typing import NoReturn
 
 from . import __version__
-from .spec import SpecError, iter_operations, load_spec, spec_servers
+from .config import apply_to_namespace, load_config, resolve, validate
+from .spec import SpecError, discover_spec, iter_operations, load_spec, spec_servers
 from .tools import AuthConfig, spec_to_tools
 
 USE_COLOR = (
@@ -124,7 +128,7 @@ def main(argv: list[str] | None = None) -> None:
     p_list.add_argument("--json", action="store_true", help="machine-readable output")
 
     p_serve = sub.add_parser("serve", help="start the MCP stdio server")
-    p_serve.add_argument("spec", help="path or URL of an OpenAPI document")
+    p_serve.add_argument("spec", nargs="?", help="path or URL of an OpenAPI document (bare origin auto-discovers; may come from the config)")
     p_serve.add_argument("--base-url", help="API base URL (default: spec servers[0])")
     p_serve.add_argument("--name", default="mcpify", help="server name reported to clients")
     p_serve.add_argument("--auth-env", help="env variable holding the API credential")
@@ -152,23 +156,77 @@ def main(argv: list[str] | None = None) -> None:
         help="add mcpify_preview_request, a dry-run tool that shows the exact "
         "request a call would send (credentials masked, nothing sent)",
     )
+    p_serve.add_argument("--config", help="config file (auto-discovers .mcpify.toml/.yaml/.json in cwd when omitted)")
+    p_serve.add_argument("--env", help="environment section from the config ([envs.NAME])")
+    p_serve.add_argument("--verbose", action="store_true", help="log every request/response (status, timing, excerpt) to stderr")
+    p_serve.add_argument("--log-file", help="append the same log to a file (bodies truncated, credentials masked)")
+    p_serve.add_argument("--cache-ttl", type=float, default=0.0, metavar="SEC",
+                         help="cache GET+200 responses in memory for this many seconds")
+    p_serve.add_argument("--retry", type=int, default=0, metavar="N",
+                         help="retry idempotent requests (GET/PUT/DELETE) up to N times on 502/503/504 or connection failure (max 5)")
+    p_serve.add_argument("--retry-delay", type=float, default=1.0, metavar="SEC", help="wait between retries")
+    p_serve.add_argument("--strict", action="store_true", help="advertise every argument as required in the tool schemas")
+    p_serve.add_argument("--format", choices=("auto", "json", "xml"), default="auto",
+                         help="auto: convert XML responses (per Content-Type) to JSON; xml: force conversion")
     p_serve.add_argument("--allow", action="append", metavar="REGEX",
                          help="re-include operations dropped by --read-only (repeatable)")
     p_serve.add_argument("--deny", action="append", metavar="REGEX",
                          help="never expose matching paths, overrides --allow (repeatable)")
+
+    p_init = sub.add_parser("init", help="interactive wizard that writes a .mcpify.toml config")
+    p_init.add_argument("--config", default=".mcpify.toml", help="config file to write (default: .mcpify.toml)")
+    p_init.add_argument("--spec", help="prefill the spec path/URL (skips that question)")
+    p_init.add_argument("--base-url", help="prefill the base URL (skips that question)")
+
+    p_status = sub.add_parser("status", help="check that the API behind a spec is reachable")
+    p_status.add_argument("spec", nargs="?", help="path or URL of an OpenAPI document (bare origin auto-discovers)")
+    p_status.add_argument("--config", help="config file (auto-discovered when omitted)")
+    p_status.add_argument("--env", help="environment section from the config ([envs.NAME])")
+    p_status.add_argument("--base-url", help="override the API base URL")
+    p_status.add_argument("--timeout", type=float, default=10.0, help="probe timeout seconds")
+    p_status.add_argument("--json", action="store_true", help="machine-readable output")
 
     p_doctor = sub.add_parser("doctor", help="inspect a spec and report problems")
     p_doctor.add_argument("spec", help="path or URL of an OpenAPI document")
     p_doctor.add_argument("--json", action="store_true", help="machine-readable output")
 
     args = parser.parse_args(argv)
+    tools: list[dict] = []  # status computes its own count
+
+    config_path = None
+    if args.command in ("serve", "status"):
+        try:
+            config_path, data = load_config(getattr(args, "config", None))
+            if config_path is not None:
+                for problem in validate(data):
+                    print(f"config warning: {problem}", file=sys.stderr)
+                settings = resolve(data, args.env)
+                apply_to_namespace(settings, args)
+                if settings.get("spec") and getattr(args, "spec", None) is None:
+                    args.spec = settings["spec"]
+                tag = f" (env: {settings['_env']})" if settings.get("_env") else ""
+                print(f"config: {config_path}{tag}", file=sys.stderr)
+        except ValueError as err:
+            _fail(str(err))
 
     if args.command in ("list", "serve"):
+        if getattr(args, "spec", None) is None:
+            _fail("a spec path or URL is required (or set `spec` in the config)")
+        spec_arg = args.spec
+        if spec_arg.startswith(("http://", "https://")):
+            from urllib.parse import urlparse
+
+            if urlparse(spec_arg).path in ("", "/"):
+                try:
+                    args.spec, _hint = discover_spec(spec_arg)
+                    print(f"discovered: {args.spec}", file=sys.stderr)
+                except SpecError as err:
+                    _fail(str(err))
         try:
             spec = load_spec(args.spec)
         except SpecError as err:
             _fail(str(err))
-        all_tools = spec_to_tools(spec)
+        all_tools = spec_to_tools(spec, strict=getattr(args, "strict", False))
         tools = filter_tools(all_tools, args)
         if not tools:
             _fail("no operations matched (the API would expose 0 tools)")
@@ -218,6 +276,9 @@ def main(argv: list[str] | None = None) -> None:
         print(dim(f"serve it: mcpify serve {args.spec}"))
 
     elif args.command == "serve":
+        from .http_client import set_logging
+
+        set_logging(args.verbose, args.log_file)
         auth = None
         if args.auth_env:
             auth = AuthConfig(args.auth_env, args.auth_style, args.auth_name)
@@ -236,13 +297,118 @@ def main(argv: list[str] | None = None) -> None:
             tools=tools,
             lazy=args.lazy,
             enable_preview=args.enable_preview,
+            cache_ttl=args.cache_ttl,
+            retry=args.retry,
+            retry_delay=args.retry_delay,
+            response_format=args.format,
         )
-        sekil = "lazy surface (search + schema + call)" if args.lazy else f"{len(tools)} tools"
+        sekil = "lazy surface (search + schema + call + health)" if args.lazy else f"{len(tools)} tools"
+        ekstra = []
+        if args.cache_ttl:
+            ekstra.append(f"cache {args.cache_ttl:g}s")
+        if args.retry:
+            ekstra.append(f"retry {args.retry}x{args.retry_delay:g}s")
+        if args.strict:
+            ekstra.append("strict")
+        if args.format != "auto":
+            ekstra.append(f"format={args.format}")
         print(
-            f"mcpify: serving {sekil} from {args.spec} -> {base}",
+            f"mcpify: serving {sekil} from {args.spec} -> {base}"
+            + (" [" + ", ".join(ekstra) + "]" if ekstra else ""),
             file=sys.stderr,
         )
         server.serve()
+
+    elif args.command == "init":
+        if os.path.exists(args.config):
+            _fail(f"{args.config} already exists — remove it first or pass --config elsewhere")
+        sorular: list[str] = []
+        if args.spec:
+            sorular.append(args.spec)
+        if args.base_url:
+            sorular.append(args.base_url)
+        kalan = iter(sorular + [None] * 20)  # gerisi stdin'den
+
+        def answers() -> Iterator[str]:
+            for item in kalan:
+                if item is None:
+                    yield input()
+                else:
+                    yield item
+
+        def loader(spec_arg: str) -> tuple[dict, str]:
+            arg = spec_arg
+            if arg.startswith(("http://", "https://")) and urlparse(arg).path in ("", "/"):
+                arg, _ = discover_spec(arg)
+            spec_data = load_spec(arg)
+            return spec_data, (_base_url(spec_data, None) or "")
+
+        from .config import build_config_document, run_wizard
+
+        try:
+            ayarlar, uyarilar = run_wizard(answers(), loader)
+        except (ValueError, StopIteration, EOFError) as err:
+            _fail(f"init cancelled: {err}")
+        for uyari in uyarilar:
+            print(f"note: {uyari}", file=sys.stderr)
+        Path(args.config).write_text(build_config_document(ayarlar), encoding="utf-8")
+        print(f"wrote {args.config}")
+        print(f"next: mcpify serve --config {args.config}   (or just: mcpify serve)")
+
+    elif args.command == "status":
+        if getattr(args, "spec", None) is None:
+            _fail("a spec path or URL is required (or set `spec` in the config)")
+        spec_arg = args.spec
+        if spec_arg.startswith(("http://", "https://")) and urlparse(spec_arg).path in ("", "/"):
+            try:
+                spec_arg, _ = discover_spec(spec_arg)
+                print(f"discovered: {spec_arg}", file=sys.stderr)
+            except SpecError as err:
+                _fail(str(err))
+        try:
+            spec = load_spec(spec_arg)
+        except SpecError as err:
+            _fail(str(err))
+        try:
+            base = _base_url(spec, args.base_url)
+        except SpecError as err:
+            _fail(str(err))
+        from .http_client import execute
+
+        baslangic = time.monotonic()
+        sonuc = execute({"method": "GET", "url": base.rstrip("/") + "/",
+                         "headers": {"Accept": "application/json"}, "body": None},
+                        timeout=args.timeout)
+        latency = time.monotonic() - baslangic
+        erisilebilir = sonuc["status"] != 0
+        auth_env = getattr(args, "auth_env", None)
+        rapor = {
+            "spec": spec_arg,
+            "base_url": base,
+            "api_reachable": erisilebilir,
+            "api_status": sonuc["status"],
+            "latency_seconds": round(latency, 3),
+            "tools": len(spec_to_tools(spec, strict=getattr(args, "strict", False))),
+            "auth_env": auth_env,
+            "auth_env_set": bool(os.environ.get(auth_env)) if auth_env else None,
+            "version": __version__,
+        }
+        if args.json:
+            print(json.dumps(rapor, ensure_ascii=False, indent=2))
+        else:
+            def green(s: str) -> str:
+                return f"\033[32m{s}\033[0m" if USE_COLOR else s
+
+            durum = green("reachable") if USE_COLOR else "reachable"
+            if not erisilebilir:
+                durum = "UNREACHABLE"
+            print(f"api:      {durum} (status {sonuc['status']}, {latency:.2f}s)")
+            print(f"base url: {base}")
+            print(f"tools:    {rapor['tools']}")
+            if auth_env:
+                setlenmis = "set" if rapor["auth_env_set"] else "NOT SET"
+                print(f"auth:     {auth_env} [{setlenmis}]")
+        sys.exit(0 if erisilebilir else 2)
 
     elif args.command == "doctor":
         try:
