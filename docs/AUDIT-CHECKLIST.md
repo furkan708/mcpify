@@ -16,7 +16,9 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
 
 ## 2. Transport & connection
 - ✅ stdio, newline-delimited JSON-RPC 2.0 (MCP stdio transport)
-- ✅ MCP lifecycle enforced: `tools/*` before `initialize` → error `-32002`
+- ✅ Lifecycle, both spec generations: legacy handshake enforced
+  (`tools/*` before `initialize` → `-32002`); stateless requests carrying
+  `_meta` protocolVersion (2026-07-28 spec) accepted without a handshake
 - ✅ `ping` supported; protocol version echoed from client
 - ⛔ SSE/streaming transports (roadmap; stdio covers Claude Code/Desktop, Cursor)
 
@@ -79,7 +81,7 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
   non-idempotent retries belong at the gateway (rationale in USAGE.md)
 
 ## 10. Test & validation
-- ✅ **116 passing tests across nine suites** (117 collected; one
+- ✅ **121 passing tests across ten suites** (122 collected; one
   live-integration test auto-skips offline) — full matrix in the README
 - ✅ Quality gates on every push: ruff, mypy `strict`, CodeQL,
   Python 3.10–3.12 × Linux + Windows

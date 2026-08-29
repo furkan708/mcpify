@@ -87,7 +87,7 @@ Tam liste: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
 ## Test ve kalite
 
-**116 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
+**121 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
 yükleyen canlı entegrasyon testidir (çevrimdışında otomatik atlanır).
 Tüm paketler Python 3.10–3.12 üzerinde Linux ve Windows'ta koşar; her
 push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
@@ -104,6 +104,7 @@ push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
 | Protokol uçtan uca | 9 | gerçek yerel HTTP API'ye karşı stdio üzerinden JSON-RPC, tell-seviyesi doğrulama |
 | Politika katmanı | 7 | `--read-only`, `--allow` / `--deny` önceliği, yazan-GET koruması |
 | `$ref` parametreleri | 4 | parametre şemalarının tam spec'e karşı çözümlenmesi — weather.gov hata sınıfı (biri canlı dokümana vurur) |
+| Protokol sürüm uyumu | 5 | 2026-07-28 stateless `_meta` istekleri ve eski 2025-06-18 el sıkışması aynı hatta |
 
 İlke: sahada bulunan her hata, düzeltme gönderilmeden önce regresyon
 testine çevrilir — paket yalnızca büyür.

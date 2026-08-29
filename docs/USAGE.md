@@ -317,3 +317,18 @@ Adds `mcpify_preview_request`: given a tool name and arguments, it prints
 the exact request that would be sent — method, URL, headers, body — with
 credentials masked and **nothing sent**. Use it to audit what an agent is
 about to do, or to let it plan before acting.
+
+## Which MCP protocol versions does mcpify speak?
+
+Both generations, on the same stdio wire:
+
+- **Classic (2025-06-18):** the client sends `initialize` +
+  `notifications/initialized`; requests before the handshake get the
+  `-32002` lifecycle error.
+- **Stateless (2026-07-28):** the handshake was removed from the spec —
+  every request carries its version in
+  `_meta["io.modelcontextprotocol/protocolVersion"]`. mcpify accepts
+  those requests directly, no handshake needed.
+
+Nothing to configure; the server detects which generation the client
+speaks per request.

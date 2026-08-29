@@ -396,8 +396,15 @@ class ApiServer:
             return None
         if method == "ping":
             return self._result(request_id, {})
+        # MCP 2026-07-28 made the protocol stateless: the initialize handshake
+        # is gone and every request carries its version in _meta. Accept those
+        # requests as pre-authorized; classic (2025-06-18) clients keep using
+        # the handshake. One path per client generation, both served here.
+        request_meta = params.get("_meta")
+        if isinstance(request_meta, dict) and "io.modelcontextprotocol/protocolVersion" in request_meta:
+            self._initialized = True
         if method in ("tools/list", "tools/call") and not self._initialized:
-            # MCP lifecycle: requests before initialization completes must fail
+            # MCP lifecycle: legacy requests before initialization completes must fail
             return self._error(request_id, -32002, "Server not initialized: send initialize and notifications/initialized first")
         if method == "tools/list":
             return self._result(request_id, {"tools": self.public_tools()})

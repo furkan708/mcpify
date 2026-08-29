@@ -11,7 +11,7 @@ English | [Türkçe](README.tr.md)
   <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
 </p>
 
-[![Tests](https://img.shields.io/badge/tests-116%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-121%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
 [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/ci.yml)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-4A90D9)](server.json)
@@ -60,7 +60,7 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   `outputSchema`/`structuredContent`, remediation-grade errors that teach the
   next call, dry-run request previews, and a `--lazy` search-then-call mode
   that cut api.weather.gov's listing by **95.5%** (38,882 → 1,741 chars)
-- **116 tests across nine suites** — including a full MCP protocol run
+- **121 tests across ten suites** — including a full MCP protocol run
   over stdio against a real local HTTP API and the **live
   api.weather.gov document** (69 tools, 16 enum'd parameters)
 
@@ -199,7 +199,7 @@ Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHEC
 
 ## Tests
 
-**116 passing**, plus one live-integration test that loads the real
+**121 passing**, plus one live-integration test that loads the real
 api.weather.gov document (auto-skipped when offline). Every suite runs on
 Python 3.10–3.12 across Linux and Windows; `ruff`, strict `mypy` and
 CodeQL gate every push.
@@ -215,6 +215,7 @@ CodeQL gate every push.
 | Protocol end-to-end | 9 | real JSON-RPC over stdio against a live local HTTP API, wire-level assertions |
 | Policy layer | 7 | `--read-only`, `--allow` / `--deny` precedence, mutating-GET protection |
 | `$ref` parameters | 4 | parameter schemas resolved against the full spec — the weather.gov bug class (one test hits the live document) |
+| Protocol version compat | 5 | 2026-07-28 stateless `_meta` requests and the legacy 2025-06-18 handshake, on the same wire |
 
 Policy on failures: every bug found in the wild becomes a pinned
 regression test before the fix ships — the suite only grows.
