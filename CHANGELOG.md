@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Planned
 - See the Roadmap section in the README.
 
+### Added
+- `doctor --json` output for CI-friendly spec checks with severity exit codes.
+
 ## [1.0.4] - 2026-08-29
 
 ### Added
