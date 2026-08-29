@@ -57,7 +57,14 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 
 ## Öne çıkan özellikler
 
-| Özellik | Komut | Ne işe yarar | |---------|-------|--------------| | Salt-okunur mod | `--read-only` | Yalnızca GET uçlarını açar; ajan (agent) okur, yazamaz | | Kimlik doğrulama | `--auth-env API_TOKEN --auth-style bearer` | Anahtar ortam değişkeninden okunur; komut satırına veya config'e yazılmaz | | Uç daraltma | `--tag`, `--include`, `--exclude` | Modele 200 yerine 5 araç gösterir → token tasarrufu | | Doktor | `mcpify doctor ./openapi.json` | Spec'i denetler: eksik operationId, ölü server adresleri vb. | | ⏱ Zaman aşımı | `--timeout 30` | API yavaşsa ajanı bekletmez |
+| Özellik | Komut | Ne işe yarar |
+|---------|-------|--------------|
+| Salt-okunur mod | `--read-only` | Yalnızca GET uçlarını açar; ajan (agent) okur, yazamaz |
+| Kimlik doğrulama | `--auth-env API_TOKEN --auth-style bearer` | Anahtar ortam değişkeninden okunur; komut satırına veya config'e yazılmaz |
+| Uç daraltma | `--tag`, `--include`, `--exclude` | Modele 200 yerine 5 araç gösterir → token tasarrufu |
+| Doktor | `mcpify doctor ./openapi.json` | Spec'i denetler: eksik operationId, ölü server adresleri vb. |
+| Zaman aşımı | `--timeout 30` | API yavaşsa ajanı bekletmez |
+| Agent yüzeyi | varsayılan + `--lazy`, `--enable-preview` | HTTP'den annotation'lar, structured output, öğreten hatalar; api.weather.gov'da ölçülmüş **%95,5** listeleme kazancı |
 
 ## Neden önemli?
 
@@ -80,13 +87,31 @@ Tam liste: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
 ## Test ve kalite
 
-- **Agent-dostu yüzey** — HTTP'den türetilen tool annotation'ları, MCP
-  structured output, sonraki çağrıyı öğreten hata mesajları, dry-run önizleme
-  ve api.weather.gov'da **%95,5** kazanç ölçen `--lazy` arama-sonra-çağır modu
-- **115 test** — birim + düşmanca spec korpusu + gerçek HTTP API'ye karşı
-  uçtan uca MCP protokol testleri, **canlı api.weather.gov dokümanı dahil**
-- **mypy strict** tip denetimi, **ruff** lint
-- CI her push'ta çalışır: [badge'e bakın](https://github.com/furkan708/mcpify/actions)
+**116 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
+yükleyen canlı entegrasyon testidir (çevrimdışında otomatik atlanır).
+Tüm paketler Python 3.10–3.12 üzerinde Linux ve Windows'ta koşar; her
+push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
+([badge](https://github.com/furkan708/mcpify/actions)).
+
+| Paket | Test | Neleri kilitler |
+|---|---:|---|
+| Spec ayrıştırma & çözümleme | 13 | OpenAPI 3.x + YAML yükleme, `$ref` zincirleri, `allOf` birleştirme, server değişkenleri, bozuk girdi |
+| Tool çevirisi | 19 | operationId isimlendirme ve çakışma son eki, input şemaları, enum'lar, gövde işleme, annotation & output şeması türetimi |
+| Agent yüzeyi | 31 | HTTP'den türetilen annotation'lar, structured output sözleşmesi, remediation hataları, `--lazy` arama, dry-run önizleme |
+| CLI | 15 | `list` / `doctor` / `serve` bayrakları, `--json` çıktı, deprecated etiketi |
+| Düşmanca korpus | 11 | döngüsel `$ref`, multipart gövde, relative base URL, 300 KB kısaltma, 500-op performans — her biri belgelenmiş gerçek hata sınıfından |
+| Yaşam döngüsü & hijyen | 8 | initialize el sıkışması (`-32002`), bayt-saf stdio, kimlik bilgileri asla loglanmaz |
+| Protokol uçtan uca | 9 | gerçek yerel HTTP API'ye karşı stdio üzerinden JSON-RPC, tell-seviyesi doğrulama |
+| Politika katmanı | 7 | `--read-only`, `--allow` / `--deny` önceliği, yazan-GET koruması |
+| `$ref` parametreleri | 4 | parametre şemalarının tam spec'e karşı çözümlenmesi — weather.gov hata sınıfı (biri canlı dokümana vurur) |
+
+İlke: sahada bulunan her hata, düzeltme gönderilmeden önce regresyon
+testine çevrilir — paket yalnızca büyür.
+
+```bash
+pip install pytest pyyaml
+pytest -v
+```
 
 ## Dokümantasyon
 

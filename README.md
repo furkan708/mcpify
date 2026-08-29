@@ -11,7 +11,7 @@ English | [Türkçe](README.tr.md)
   <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
 </p>
 
-[![Tests](https://img.shields.io/badge/tests-115%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-116%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
 [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/ci.yml)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-4A90D9)](server.json)
@@ -60,9 +60,9 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   `outputSchema`/`structuredContent`, remediation-grade errors that teach the
   next call, dry-run request previews, and a `--lazy` search-then-call mode
   that cut api.weather.gov's listing by **95.5%** (38,882 → 1,741 chars)
-- **115 tests** — unit, hostile-spec corpus, and full MCP protocol
-  end-to-end over stdio against a real local HTTP API, including the
-  **live api.weather.gov document** (69 tools, 16 enum'd parameters)
+- **116 tests across nine suites** — including a full MCP protocol run
+  over stdio against a real local HTTP API and the **live
+  api.weather.gov document** (69 tools, 16 enum'd parameters)
 
 ## Quick start
 
@@ -187,14 +187,32 @@ Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHEC
 
 ## Tests
 
+**116 passing**, plus one live-integration test that loads the real
+api.weather.gov document (auto-skipped when offline). Every suite runs on
+Python 3.10–3.12 across Linux and Windows; `ruff`, strict `mypy` and
+CodeQL gate every push.
+
+| Suite | Tests | What it pins down |
+|---|---:|---|
+| Spec parsing & resolution | 13 | OpenAPI 3.x + YAML loading, `$ref` chains, `allOf` merge, server variables, malformed input |
+| Tool translation | 19 | operationId naming with collision suffixing, input schemas, enums, body handling, annotation & output-schema derivation |
+| Agent surface | 31 | HTTP-derived annotations, structured output contract, remediation errors, `--lazy` search, dry-run previews |
+| CLI | 15 | `list` / `doctor` / `serve` flags, `--json` output, deprecated badges |
+| Hostile corpus | 11 | circular `$ref`s, multipart bodies, relative base URLs, 300 KB truncation, 500-op performance — each traced to a documented real-world failure |
+| Lifecycle & hygiene | 8 | initialize handshake (`-32002`), byte-pure stdio, credentials never logged |
+| Protocol end-to-end | 9 | real JSON-RPC over stdio against a live local HTTP API, wire-level assertions |
+| Policy layer | 7 | `--read-only`, `--allow` / `--deny` precedence, mutating-GET protection |
+| `$ref` parameters | 4 | parameter schemas resolved against the full spec — the weather.gov bug class (one test hits the live document) |
+
+Policy on failures: every bug found in the wild becomes a pinned
+regression test before the fix ships — the suite only grows.
+
+Run it locally:
+
 ```bash
 pip install pytest pyyaml
 pytest -v
 ```
-
-The e2e suite boots a real local HTTP API and drives the full MCP protocol
-over stdio — initialize → tools/list → tools/call — and asserts on the HTTP
-requests that hit the wire.
 
 ## Project Structure
 

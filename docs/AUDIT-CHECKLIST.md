@@ -79,15 +79,19 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
   non-idempotent retries belong at the gateway (rationale in USAGE.md)
 
 ## 10. Test & validation
-- ✅ **115 tests**: unit, agent-surface, hostile-spec corpus, MCP protocol end-to-end over
-  stdio against a real local HTTP API
-- ✅ **Live integration**: api.weather.gov OpenAPI document loaded in CI
-  (69 tools, 16 enum'd parameters) — the scenario that found our last
-  crash-class bug
-- ✅ Hostile corpus (12 scenarios) derived from published failure studies
+- ✅ **116 passing tests across nine suites** (117 collected; one
+  live-integration test auto-skips offline) — full matrix in the README
+- ✅ Quality gates on every push: ruff, mypy `strict`, CodeQL,
+  Python 3.10–3.12 × Linux + Windows
+- ✅ Hostile corpus (11 scenarios) derived from published failure studies
   (arXiv 2507.16044; TrueFoundry & DigitalAPI conversion guides)
-- ✅ Multi-client by protocol: speaks standard stdio MCP — verified with
-  real JSON-RPC handshake in tests (Claude Desktop/Code, Cursor compatible)
+- ✅ Live integration: the real api.weather.gov document loads in CI
+  (69 tools, 16 enum'd parameters) — the scenario that found our
+  crash-class bug
+- ✅ Regression policy: every field bug becomes a pinned test before the
+  fix ships
+- ✅ Multi-client by protocol: standard stdio MCP, verified with a real
+  JSON-RPC handshake in tests (Claude Desktop/Code, Cursor compatible)
 
 ---
-*Audited 2026-08-29 against v1.2.0. Re-run on every release.*
+*Audited 2026-08-29 against v1.3.0. Re-run on every release.*
