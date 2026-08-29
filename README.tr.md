@@ -86,7 +86,10 @@ Tam liste: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
 ## Test ve kalite
 
-- ✅ **82 test** — birim + düşmanca spec korpusu + gerçek HTTP API'ye karşı
+- 🎯 **Agent-dostu yüzey** — HTTP'den türetilen tool annotation'ları, MCP
+  structured output, sonraki çağrıyı öğreten hata mesajları, dry-run önizleme
+  ve api.weather.gov'da **%95,5** kazanç ölçen `--lazy` arama-sonra-çağır modu
+- ✅ **115 test** — birim + düşmanca spec korpusu + gerçek HTTP API'ye karşı
   uçtan uca MCP protokol testleri, **canlı api.weather.gov dokümanı dahil**
 - ✅ **mypy strict** tip denetimi, **ruff** lint
 - ✅ CI her push'ta çalışır: [badge'e bakın](https://github.com/furkan708/mcpify/actions)

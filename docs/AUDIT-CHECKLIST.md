@@ -2,7 +2,7 @@
 
 This project is audited against a 10-category checklist of MCP best
 practices and common production failure modes. Every release re-runs the
-full checklist. Status below reflects **v1.0.4**.
+full checklist. Status below reflects **v1.2.0**.
 
 Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
 (documented in [USAGE.md](USAGE.md) FAQ)
@@ -24,12 +24,22 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
 - ✅ Explicit JSON Schema per tool (types, descriptions, enums)
 - ✅ No opaque wrapper objects — parameters are plain fields
 - ✅ operationId-based names with collision suffixing (`_2`, `_3` …)
+- ✅ Meta-tool names reserved server-side; spec collisions suffix, never shadow
+- ✅ Tool annotations (readOnly/destructive/idempotent/openWorld + title)
+  derived honestly from HTTP methods — client approval UX rides on them
 - ✅ Enum'd parameters from real specs surface as proper enums
 - ✅ `$ref`-based parameter/body schemas resolve against the full spec
 - ✅ Unresolvable schema → string fallback with a note (never a crash)
 
 ## 4. Response management & performance
 - ✅ Responses truncated at ~40k chars (context-blast guard)
+- ✅ Structured output: outputSchema only when the spec documents 2xx JSON;
+  structuredContent delivered with back-compat text; non-JSON body → tool error
+- ✅ Remediation-grade errors: validation details, auth hints, Retry-After,
+  closest-path suggestions on 404
+- ✅ Lazy mode (`--lazy`): 95.5% listing reduction measured on api.weather.gov
+- ✅ Dry-run preview (`--enable-preview`): exact request, masked credentials,
+  zero network
 - ✅ HTTP errors returned as tool errors — agent-visible, in plain English
 - ✅ 500-operation specs convert in milliseconds (benchmarked in tests)
 - ⛔ Response streaming/continuation (transport-level; see §2)
@@ -69,7 +79,7 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
   non-idempotent retries belong at the gateway (rationale in USAGE.md)
 
 ## 10. Test & validation
-- ✅ **82 tests**: unit, hostile-spec corpus, MCP protocol end-to-end over
+- ✅ **115 tests**: unit, agent-surface, hostile-spec corpus, MCP protocol end-to-end over
   stdio against a real local HTTP API
 - ✅ **Live integration**: api.weather.gov OpenAPI document loaded in CI
   (69 tools, 16 enum'd parameters) — the scenario that found our last
@@ -80,4 +90,4 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
   real JSON-RPC handshake in tests (Claude Desktop/Code, Cursor compatible)
 
 ---
-*Audited 2026-08-29 against v1.0.4. Re-run on every release.*
+*Audited 2026-08-29 against v1.2.0. Re-run on every release.*

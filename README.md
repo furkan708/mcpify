@@ -11,7 +11,7 @@
   <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
 </p>
 
-[![Tests](https://img.shields.io/badge/tests-82%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-115%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
 [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/ci.yml)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-4A90D9)](server.json)
@@ -55,7 +55,12 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
 - 🩺 **`mcpify doctor`** — tells you if your spec is agent-friendly before you ship
 - 🪶 **Zero dependencies** — one pure-Python file tree; YAML specs need an
   optional `pip install 'mcpify[yaml]'`
-- 🧪 **82 tests** — unit, hostile-spec corpus, and full MCP protocol
+- 🎯 **Agent-grade surface.** Tool annotations derived from HTTP semantics
+  (clients auto-approve read-only tools), structured output via MCP
+  `outputSchema`/`structuredContent`, remediation-grade errors that teach the
+  next call, dry-run request previews, and a `--lazy` search-then-call mode
+  that cut api.weather.gov's listing by **95.5%** (38,882 → 1,741 chars)
+- 🧪 **115 tests** — unit, hostile-spec corpus, and full MCP protocol
   end-to-end over stdio against a real local HTTP API, including the
   **live api.weather.gov document** (69 tools, 16 enum'd parameters)
 

@@ -254,3 +254,66 @@ Desktop spawn. If you need HTTP transport, put a transport shim in front.
 
 **Multiple servers, one spec?**
 Run one `mcpify serve` per scope (see §4). Processes are cheap and isolated.
+
+
+## Agent-grade surface (v1.2.0)
+
+These features exist for one reason: raise the rate at which an agent's
+tool calls succeed — and let clients spend less context doing it.
+
+### Tool annotations from HTTP semantics
+
+Every tool carries MCP annotations derived from its HTTP method. Clients
+use them for approval routing (read-only tools can be auto-approved,
+destructive ones prompt):
+
+| Method | readOnlyHint | destructiveHint | idempotentHint |
+|--------|--------------|-----------------|----------------|
+| GET    | true         | false           | true           |
+| PUT    | false        | false           | true (replacement) |
+| DELETE | false        | true            | true (RFC 9110 idempotent) |
+| POST/PATCH | false    | false           | false          |
+
+`openWorldHint` is always true (the tool reaches an external API); `title`
+comes from the operation summary. Hints describe the HTTP method — never
+your deployment's intent.
+
+### Structured output
+
+If an operation documents an `application/json` body for a 2xx response,
+its tool declares an `outputSchema` and successful calls return
+`structuredContent` (plus the same JSON as text for back-compat). No JSON
+schema documented → no declaration: mcpify never promises what the spec
+doesn't. Error results stay text-only (spec-exempt), and a non-JSON body
+against a declared schema is reported as a tool error — a broken promise
+is a protocol violation, so it's surfaced instead.
+
+### Remediation-grade errors
+
+HTTP errors carry corrective guidance so the *next* call succeeds:
+FastAPI-style `detail` arrays become named validation lines, 401/403 point
+at `--auth-env`, 429 reports `Retry-After` (mcpify never retries
+automatically), 5xx blames the upstream, and 404s suggest the closest
+known paths.
+
+### Lazy mode for large APIs (`--lazy`)
+
+```bash
+mcpify serve huge-spec.json --lazy
+```
+
+The listing shrinks to three meta tools: `mcpify_search_tools` (keyword +
+tag search over compact entries), `mcpify_get_tool_schema` (full definition
+of one tool), and `mcpify_call_tool` (executes it). Measured against the
+live api.weather.gov document (69 tools): **38,882 → 1,741 characters in
+tools/list — a 95.5% reduction** — with search ranking `gridpoint forecast`
+to exactly `gridpoint_forecast` first. Meta names are reserved
+(`mcpify_*`); a spec operation using one of them gets the usual `_2` suffix
+instead of shadowing anything.
+
+### Dry-run previews (`--enable-preview`)
+
+Adds `mcpify_preview_request`: given a tool name and arguments, it prints
+the exact request that would be sent — method, URL, headers, body — with
+credentials masked and **nothing sent**. Use it to audit what an agent is
+about to do, or to let it plan before acting.

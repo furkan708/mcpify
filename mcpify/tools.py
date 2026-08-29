@@ -11,6 +11,17 @@ from .spec import SpecError, resolve_schema
 # Body arguments are exposed under this property name.
 BODY_ARG = "body"
 
+# Reserved for the server's meta tools (search / schema / call / preview).
+# spec_to_tools claims these names first, so a spec operation that happens
+# to define one of them gets the usual `_2` suffix instead of shadowing a
+# meta tool — collisions are impossible by construction.
+META_TOOL_NAMES = frozenset({
+    "mcpify_search_tools",
+    "mcpify_get_tool_schema",
+    "mcpify_call_tool",
+    "mcpify_preview_request",
+})
+
 
 def slugify(*parts: str) -> str:
     text = "_".join(parts).lower()
@@ -31,6 +42,61 @@ def build_description(method: str, path: str, operation: dict) -> str:
     if text:
         return f"[{method}] {text}"
     return f"[{method}] Call {path}"
+
+
+def annotations_for(method: str, operation: dict) -> dict:
+    """MCP tool annotations derived from HTTP semantics.
+
+    Clients use these hints for approval routing (readOnlyHint=true may be
+    auto-approved; destructiveHint=true forces confirmation), so they must
+    describe the HTTP method honestly — never the deployment's intent:
+
+    - GET:  read-only, idempotent, non-destructive
+    - PUT:  idempotent (full replacement), non-destructive by default claim
+    - DELETE: destructive, idempotent (RFC 9110: repeating DELETE leaves
+      the same state — the follow-up calls fail with 404 but change nothing)
+    - POST/PATCH: no idempotence claim
+
+    openWorldHint is always true: the tool reaches an external API.
+    """
+    m = method.upper()
+    if m == "GET":
+        hints = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}
+    elif m == "PUT":
+        hints = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True}
+    elif m == "DELETE":
+        hints = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True}
+    else:  # POST, PATCH
+        hints = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False}
+    annotations: dict = {"openWorldHint": True, **hints}
+    title = str(operation.get("summary") or "").strip()
+    if title:
+        annotations = {"title": title, **annotations}
+    return annotations
+
+
+def output_schema_for(operation: dict, spec: dict) -> dict | None:
+    """Structured-output schema from the operation's documented 2xx JSON body.
+
+    MCP structured output is a promise: a tool that declares outputSchema
+    must return conforming structuredContent on success (error results are
+    exempt). We only declare it when the spec explicitly documents an
+    application/json body for a 2xx response, and we stay silent when the
+    schema cannot be resolved — a missing declaration is honest, a broken
+    one is a protocol violation.
+    """
+    responses = operation.get("responses") or {}
+    for code in sorted(str(k) for k in responses if str(k).startswith("2")):
+        entry = responses.get(code)
+        if not isinstance(entry, dict):
+            continue
+        media = (entry.get("content") or {}).get("application/json")
+        if isinstance(media, dict) and media.get("schema"):
+            try:
+                return resolve_schema(media["schema"], spec)
+            except SpecError:
+                return None  # circular / unresolvable: no promise at all
+    return None
 
 
 def extract_parameters(operation: dict, path_item: dict, spec: dict) -> list[dict]:
@@ -150,10 +216,13 @@ def operation_to_tool(method: str, path: str, operation: dict, path_item: dict, 
         counter += 1
     taken.add(name)
 
-    return {
+    tool: dict = {
         "name": name,
         "description": build_description(method, path, operation),
-        "inputSchema": build_input_schema(method.upper(), operation, parameters, request_schema, spec, raw_body_content_type),
+        "inputSchema": build_input_schema(
+            method.upper(), operation, parameters, request_schema, spec, raw_body_content_type
+        ),
+        "annotations": annotations_for(method, operation),
         "_meta": {
             "method": method.upper(),
             "path": path,
@@ -163,6 +232,10 @@ def operation_to_tool(method: str, path: str, operation: dict, path_item: dict, 
             "tags": list(operation.get("tags") or []),
         },
     }
+    output_schema = output_schema_for(operation, spec)
+    if output_schema is not None:
+        tool["outputSchema"] = output_schema
+    return tool
 
 
 def spec_to_tools(spec: dict) -> list[dict]:
@@ -170,7 +243,7 @@ def spec_to_tools(spec: dict) -> list[dict]:
     from .spec import iter_operations
 
     tools: list[dict] = []
-    taken: set = set()
+    taken: set = set(META_TOOL_NAMES)
     for method, path, operation in iter_operations(spec):
         if method.lower() in ("head", "options", "trace"):
             continue  # no agent value; they carry no request semantics

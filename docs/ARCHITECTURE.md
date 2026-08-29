@@ -113,3 +113,19 @@ It deliberately is *not*:
 - a **Stateful Session** server (no per-conversation memory beyond the spec
   loaded at boot),
 - a **Tool Orchestrator** (it does not chain tools; the agent does).
+
+
+## Structured results & the lazy surface
+
+The tool pipeline is: `spec → tools.py (descriptor + annotations +
+outputSchema) → api_server.run_tool → http_client.execute → payload`.
+Three decisions shape v1.2.0:
+
+1. **Promises are opt-in.** `outputSchema` is declared only when the spec
+   documents a 2xx JSON body; `structuredContent` is delivered with the
+   spec-mandated back-compat text block; error results stay text-only.
+2. **Errors teach.** `http_client.remediation` turns status + API payload
+   into corrective lines (validation, auth, retry-after, closest paths).
+3. **Names are reserved.** Meta tools (`mcpify_*`) are claimed in
+   `spec_to_tools` before operation IDs, so a colliding spec operation
+   suffixes (`_2`) instead of shadowing the search/call surface.

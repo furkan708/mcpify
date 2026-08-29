@@ -1,22 +1,55 @@
 """MCP (Model Context Protocol) stdio server that exposes an OpenAPI spec.
 
-Specks newline-delimited JSON-RPC 2.0 over stdio, as used by MCP stdio
+Speaks newline-delimited JSON-RPC 2.0 over stdio, as used by MCP stdio
 transports. Every OpenAPI operation becomes an MCP tool that performs a
 real HTTP call against the configured base URL.
+
+Agent-grade surface:
+- structured output: tools whose spec documents a 2xx JSON body declare
+  outputSchema and return structuredContent (plus the back-compat text)
+- remediation: HTTP errors carry corrective guidance, not just the body
+- lazy mode (--lazy): three meta-tools (search / schema / call) replace
+  the full listing so a 500-endpoint API costs ~3 tool definitions
+- preview (--enable-preview): mcpify_preview_request shows the exact
+  request that would be sent — a dry run, with credentials masked
 """
 
 from __future__ import annotations
 
 import json
+import re
 import sys
 from typing import Any
 
 from . import __version__ as SERVER_VERSION  # never hardcode: avoids version drift
-from .http_client import execute, format_result
-from .tools import AuthConfig, RequestError, build_request, spec_to_tools
+from .http_client import execute, format_result, remediation
+from .tools import META_TOOL_NAMES, AuthConfig, RequestError, build_request, spec_to_tools
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "mcpify"
+
+# Meta tools are namespaced with an explicit prefix so a spec can never
+# collide with them (a spec defining operationId "search_tools" stays
+# callable under its own name).
+SEARCH_TOOL = "mcpify_search_tools"
+SCHEMA_TOOL = "mcpify_get_tool_schema"
+CALL_TOOL = "mcpify_call_tool"
+PREVIEW_TOOL = "mcpify_preview_request"
+
+
+def _public(tool: dict) -> dict:
+    return {k: v for k, v in tool.items() if not k.startswith("_")}
+
+
+def _annotations(read_only: bool, open_world: bool, destructive: bool, idempotent: bool, title: str) -> dict:
+    out: dict = {"title": title}
+    out.update(
+        readOnlyHint=read_only,
+        destructiveHint=destructive,
+        idempotentHint=idempotent,
+        openWorldHint=open_world,
+    )
+    return out
 
 
 class ApiServer:
@@ -29,15 +62,111 @@ class ApiServer:
         server_name: str = "mcpify",
         auth: AuthConfig | None = None,
         timeout: float = 30.0,
+        tools: list[dict] | None = None,
+        lazy: bool = False,
+        enable_preview: bool = False,
     ) -> None:
         self.spec = spec
         self.base_url = base_url
         self.server_name = server_name
         self.auth = auth
         self.timeout = timeout
-        self.tools = spec_to_tools(spec)
+        self.lazy = lazy
+        # tools may be pre-filtered by the CLI policy layer; building them
+        # here keeps direct construction (tests, embedders) working.
+        self.tools = tools if tools is not None else spec_to_tools(spec)
         self.by_name = {tool["name"]: tool for tool in self.tools}
+        shadowed = sorted(set(self.by_name) & META_TOOL_NAMES)
+        if shadowed:
+            # impossible via spec_to_tools (names are claimed there); this
+            # guards hand-fed tool lists (embedders, future callers)
+            raise ValueError(
+                "tool names collide with reserved meta tools: " + ", ".join(shadowed)
+            )
+        self.known_paths = sorted({tool["_meta"]["path"] for tool in self.tools})
+        self.meta_tools: dict[str, dict] = {t["name"]: t for t in self._build_meta_tools()}
+        if lazy:
+            listed = [SEARCH_TOOL, SCHEMA_TOOL, CALL_TOOL]
+        else:
+            listed = [tool["name"] for tool in self.tools]
+        if enable_preview:
+            listed.append(PREVIEW_TOOL)
+        self.listed_names = listed
         self._initialized = False
+
+    # -- meta tool descriptors -------------------------------------------
+    def _build_meta_tools(self) -> list[dict]:
+        search = {
+            "name": SEARCH_TOOL,
+            "description": (
+                "Search the API's tools by keyword (matches names, paths, "
+                "summaries and tags). Returns compact entries — use "
+                f"{SCHEMA_TOOL} for a full schema before calling."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "space-separated keywords"},
+                    "tag": {"type": "string", "description": "exact tag filter (case-insensitive)"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 25, "default": 10},
+                },
+                "required": [],
+            },
+            "annotations": _annotations(True, False, False, True, "Search API tools"),
+            "_local": True,
+        }
+        schema_tool = {
+            "name": SCHEMA_TOOL,
+            "description": (
+                "Get the full definition of one tool: input schema, annotations "
+                "and output schema. Call this before invoking a tool the first time."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {"name": {"type": "string", "description": "tool name from search"}},
+                "required": ["name"],
+            },
+            "annotations": _annotations(True, False, False, True, "Get tool schema"),
+            "_local": True,
+        }
+        call = {
+            "name": CALL_TOOL,
+            "description": (
+                "Execute one of the API's tools by name with the given arguments. "
+                "Honest hints: this can reach write and destructive endpoints — "
+                "check the target tool's annotations (from "
+                f"{SCHEMA_TOOL}) before calling."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "tool name from search"},
+                    "arguments": {"type": "object", "description": "arguments for the target tool"},
+                },
+                "required": ["name"],
+            },
+            "annotations": _annotations(False, True, True, False, "Execute API tool"),
+            "_local": True,
+        }
+        preview = {
+            "name": PREVIEW_TOOL,
+            "description": (
+                "Dry run: show the exact HTTP request (method, URL, headers, "
+                "body) that a tool call would produce — nothing is sent. "
+                "Credentials are masked."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "tool name"},
+                    "arguments": {"type": "object", "description": "arguments to preview"},
+                },
+                "required": ["name"],
+            },
+            "annotations": _annotations(True, False, False, True, "Preview request"),
+            "_local": True,
+        }
+        return [search, schema_tool, call, preview]
 
     # -- public API used by the CLI --------------------------------------
     @property
@@ -45,20 +174,192 @@ class ApiServer:
         return len(self.tools)
 
     def public_tools(self) -> list[dict]:
-        return [
-            {k: v for k, v in tool.items() if not k.startswith("_")}
-            for tool in self.tools
-        ]
+        lookup = {**self.by_name, **self.meta_tools}
+        return [_public(lookup[name]) for name in self.listed_names]
 
-    def call_tool(self, name: str, arguments: dict) -> tuple[str, bool]:
+    # -- tool execution ----------------------------------------------------
+    def run_tool(self, name: str, arguments: dict) -> dict:
+        """Execute any listed tool and return a full MCP tool-result payload."""
+        if name in self.meta_tools:
+            if name not in self.listed_names:
+                raise KeyError(name)  # not listed -> not callable
+            return self._run_meta(name, arguments)
         tool = self.by_name.get(name)
         if tool is None:
             raise KeyError(name)
+        if self.lazy:
+            raise RequestError(
+                f"'{name}' is not listed (lazy mode) — search with {SEARCH_TOOL}, "
+                f"inspect with {SCHEMA_TOOL}, then call via {CALL_TOOL}."
+            )
+        return self._execute_real(tool, arguments)
+
+    def _execute_real(self, tool: dict, arguments: dict) -> dict:
         request = build_request(self.base_url, tool["_meta"], arguments, self.auth)
         if self.auth is not None:
             request["url"] = self.auth.apply_query(request["url"])
         result = execute(request, timeout=self.timeout)
-        return format_result(result)
+        return self._payload_for(tool, result)
+
+    def _payload_for(self, tool: dict, result: dict) -> dict:
+        status = result["status"]
+        if status == 0 or status >= 400:
+            text, _ = format_result(result)
+            extra = remediation(result, tool, self.known_paths)
+            return self._text(text + extra, is_error=True)
+
+        schema = tool.get("outputSchema")
+        if schema is not None:
+            # Structured output is a declared promise: success must carry
+            # structuredContent. A non-JSON body breaks that contract, so
+            # it is reported as a tool error (spec exempts isError results
+            # from output validation).
+            if result["json"] is None:
+                excerpt = result["body"][:500]
+                return self._text(
+                    f"HTTP {status}\nThis tool declares a JSON response, but the API "
+                    f"returned a non-JSON body:\n{excerpt}",
+                    is_error=True,
+                )
+            text, _ = format_result(result)  # serialized JSON, truncated for context safety
+            return {
+                "content": [{"type": "text", "text": text}],
+                "structuredContent": result["json"],
+            }
+        text, is_error = format_result(result)
+        return self._text(text, is_error=is_error)
+
+    def _run_meta(self, name: str, arguments: dict) -> dict:
+        if name == SEARCH_TOOL:
+            return self._search(arguments)
+        if name == SCHEMA_TOOL:
+            return self._get_schema(arguments)
+        if name == CALL_TOOL:
+            return self._lazy_call(arguments)
+        if name == PREVIEW_TOOL:
+            return self._preview(arguments)
+        raise KeyError(name)  # unreachable: meta_tools keys are exactly these
+
+    # -- lazy mode internals ---------------------------------------------
+    @staticmethod
+    def _score(query: str, tool: dict) -> int:
+        """Deterministic keyword score: every token must match somewhere."""
+        meta = tool["_meta"]
+        haystack = " ".join(
+            [tool["name"], meta["path"], tool["description"], " ".join(meta["tags"])]
+        ).lower()
+        tokens = [t for t in re.split(r"[^a-z0-9]+", query.lower()) if t]
+        if not tokens:
+            return 0
+        hits = sum(1 for t in tokens if t in haystack)
+        if hits < len(tokens):
+            return hits if hits >= len(tokens) - 1 else 0
+        score = len(tokens)
+        if all(t in tool["name"].lower() for t in tokens):
+            score += 3
+        if query.lower() in meta["path"]:
+            score += 2
+        return score
+
+    def _search(self, arguments: dict) -> dict:
+        query = str(arguments.get("query") or "").strip()
+        tag = str(arguments.get("tag") or "").strip().lower()
+        limit = arguments.get("limit", 10)
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+            raise RequestError("'limit' must be a positive integer (1-25)")
+        limit = min(limit, 25)
+        scored: list[tuple[int, dict]] = []
+        for tool in self.tools:
+            meta = tool["_meta"]
+            if tag and not any(entry.lower() == tag for entry in meta["tags"]):
+                continue
+            score = self._score(query, tool)
+            if query and score == 0:
+                continue
+            scored.append((score, tool))
+        scored.sort(key=lambda pair: (-pair[0], pair[1]["name"]))
+        top = scored[:limit]
+        entries = [
+            {
+                "name": tool["name"],
+                "method": tool["_meta"]["method"],
+                "path": tool["_meta"]["path"],
+                "summary": tool["description"],
+                "tags": tool["_meta"]["tags"],
+                "readOnly": bool(tool.get("annotations", {}).get("readOnlyHint")),
+                "hasOutputSchema": "outputSchema" in tool,
+            }
+            for _, tool in top
+        ]
+        total = len(scored)
+        suffix = f" ({total} total matches)" if total > len(entries) else ""
+        text = json.dumps(entries, ensure_ascii=False, indent=2)
+        return self._text(f"{len(entries)} tool(s){suffix}\n{text}")
+
+    def _resolve_target(self, arguments: dict, caller: str) -> dict:
+        name = arguments.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise RequestError(f"'name' is required (the tool to {caller})")
+        tool = self.by_name.get(name)
+        if tool is None:
+            import difflib
+
+            close = difflib.get_close_matches(name, list(self.by_name), n=3, cutoff=0.4)
+            hint = f" Did you mean: {', '.join(close)}?" if close else ""
+            raise RequestError(f"unknown tool '{name}'.{hint}")
+        return tool
+
+    def _get_schema(self, arguments: dict) -> dict:
+        tool = self._resolve_target(arguments, "inspect")
+        return self._text(json.dumps(_public(tool), ensure_ascii=False, indent=2))
+
+    def _lazy_call(self, arguments: dict) -> dict:
+        tool = self._resolve_target(arguments, "call")
+        inner = arguments.get("arguments")
+        if inner is None:
+            inner = {}
+        if not isinstance(inner, dict):
+            raise RequestError("'arguments' must be an object")
+        return self._execute_real(tool, inner)
+
+    # -- preview (dry run) -------------------------------------------------
+    def _mask_request(self, request: dict) -> dict:
+        headers: dict = {}
+        for key, value in request["headers"].items():
+            if key.lower() == "authorization":
+                scheme = value.split(" ", 1)[0]
+                headers[key] = f"{scheme} ***"
+            elif self.auth is not None and self.auth.style == "header" and key == (
+                self.auth.name or "X-API-Key"
+            ):
+                headers[key] = "***"
+            else:
+                headers[key] = value
+        url = request["url"]
+        if self.auth is not None and self.auth.style == "query":
+            name = self.auth.name or "api_key"
+            url = re.sub(rf"([?&]{re.escape(name)}=)[^&]*", r"\1***", url)
+        return {**request, "headers": headers, "url": url}
+
+    def _preview(self, arguments: dict) -> dict:
+        tool = self._resolve_target(arguments, "preview")
+        inner = arguments.get("arguments") or {}
+        if not isinstance(inner, dict):
+            raise RequestError("'arguments' must be an object")
+        request = build_request(self.base_url, tool["_meta"], inner, self.auth)
+        if self.auth is not None:
+            request["url"] = self.auth.apply_query(request["url"])
+        masked = self._mask_request(request)
+        lines = [f"{masked['method']} {masked['url']}"]
+        for key, value in masked["headers"].items():
+            lines.append(f"{key}: {value}")
+        if masked["body"] is not None:
+            body = masked["body"].decode("utf-8", "replace")
+            if len(body) > 2000:
+                body = body[:2000] + " …[truncated]"
+            lines.append(f"\nbody:\n{body}")
+        lines.append("\n(dry run — nothing was sent)")
+        return self._text("\n".join(lines))
 
     # -- MCP plumbing -----------------------------------------------------
     def _result(self, request_id: int | str | None, payload: dict) -> dict:
@@ -104,12 +405,12 @@ class ApiServer:
             name = params.get("name", "")
             arguments = params.get("arguments") or {}
             try:
-                text, is_error = self.call_tool(name, arguments)
+                payload = self.run_tool(name, arguments)
             except KeyError:
                 return self._error(request_id, -32601, f"unknown tool: {name}")
             except RequestError as err:
                 return self._result(request_id, self._text(str(err), is_error=True))
-            return self._result(request_id, self._text(text, is_error=is_error))
+            return self._result(request_id, payload)
         return self._error(request_id, -32601, f"method not found: {method}")
 
     def serve(self, stdin: Any = None, stdout: Any = None) -> None:
@@ -138,9 +439,21 @@ def serve(
     name: str = "mcpify",
     auth: AuthConfig | None = None,
     timeout: float = 30.0,
+    tools: list[dict] | None = None,
+    lazy: bool = False,
+    enable_preview: bool = False,
 ) -> None:
     """Load the spec and block on the stdio loop (the `mcpify serve` entry)."""
     from .spec import load_spec
 
     spec = load_spec(spec_path)
-    ApiServer(spec, base_url, server_name=name, auth=auth, timeout=timeout).serve()
+    ApiServer(
+        spec,
+        base_url,
+        server_name=name,
+        auth=auth,
+        timeout=timeout,
+        tools=tools,
+        lazy=lazy,
+        enable_preview=enable_preview,
+    ).serve()

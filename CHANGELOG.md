@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Planned
 - See the Roadmap section in the README.
 
+## [1.2.0] - 2026-08-29
+
+### Added — agent-grade surface
+- Tool annotations derived from HTTP semantics (readOnly/destructive/
+  idempotent/openWorld + title from summary) for client approval UX.
+- Structured output: tools with a documented 2xx JSON body declare
+  `outputSchema` and return `structuredContent` + back-compat text.
+- Remediation-grade tool errors: API validation details, auth hints,
+  `Retry-After` on 429, closest-path suggestions on 404, upstream blame
+  on 5xx.
+- `--lazy` mode: search/get-schema/call meta tools replace the full
+  listing (95.5% listing reduction measured on api.weather.gov, 69 tools).
+- `--enable-preview`: `mcpify_preview_request` dry-run tool — exact
+  request, masked credentials, nothing sent.
+- Meta-tool names reserved during generation; spec collisions get the
+  `_2` suffix instead of shadowing.
+
 ## [1.1.0] - 2026-08-29
 
 ### Added

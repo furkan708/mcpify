@@ -140,6 +140,18 @@ def main(argv: list[str] | None = None) -> None:
     p_serve.add_argument("--include", action="append", help="only these path prefixes (repeatable)")
     p_serve.add_argument("--exclude", action="append", help="skip these path prefixes (repeatable)")
     p_serve.add_argument("--read-only", action="store_true", help="expose only GET operations")
+    p_serve.add_argument(
+        "--lazy",
+        action="store_true",
+        help="expose search/get-schema/call meta tools instead of the full listing "
+        "(for very large APIs; saves the client's context window)",
+    )
+    p_serve.add_argument(
+        "--enable-preview",
+        action="store_true",
+        help="add mcpify_preview_request, a dry-run tool that shows the exact "
+        "request a call would send (credentials masked, nothing sent)",
+    )
     p_serve.add_argument("--allow", action="append", metavar="REGEX",
                          help="re-include operations dropped by --read-only (repeatable)")
     p_serve.add_argument("--deny", action="append", metavar="REGEX",
@@ -219,11 +231,13 @@ def main(argv: list[str] | None = None) -> None:
             server_name=args.name,
             auth=auth,
             timeout=args.timeout,
+            tools=tools,
+            lazy=args.lazy,
+            enable_preview=args.enable_preview,
         )
-        server.tools = tools
-        server.by_name = {tool["name"]: tool for tool in tools}
+        sekil = "lazy surface (search + schema + call)" if args.lazy else f"{len(tools)} tools"
         print(
-            f"mcpify: serving {len(tools)} tools from {args.spec} -> {base}",
+            f"mcpify: serving {sekil} from {args.spec} -> {base}",
             file=sys.stderr,
         )
         server.serve()
