@@ -108,6 +108,35 @@ def test_doctor_warns_on_variabled_server(tmp_path, capsys):
     assert "--base-url" in out
 
 
+def test_doctor_json_is_machine_readable_and_returns_warning_code(tmp_path, capsys):
+    spec_path = tmp_path / "anon.json"
+    spec_path.write_text(json.dumps({
+        "openapi": "3.0.0",
+        "info": {"title": "A", "version": "1"},
+        "paths": {"/a": {"get": {}}},
+    }), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        main(["doctor", str(spec_path), "--json"])
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["ok"] is False
+    assert payload["operations"] == 1
+    assert payload["missing_operation_id"] == 1
+    assert payload["warnings"]
+    assert captured.err == ""
+
+
+def test_doctor_json_clean_spec_returns_zero(tmp_path, capsys):
+    import shutil
+
+    shutil.copy(SPEC, tmp_path / "p.json")
+    main(["doctor", str(tmp_path / "p.json"), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["warnings"] == []
+
+
 def test_serve_requires_base_url(tmp_path):
     spec_path = tmp_path / "noserver.json"
     spec_path.write_text(

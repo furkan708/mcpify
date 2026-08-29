@@ -147,6 +147,7 @@ def main(argv: list[str] | None = None) -> None:
 
     p_doctor = sub.add_parser("doctor", help="inspect a spec and report problems")
     p_doctor.add_argument("spec", help="path or URL of an OpenAPI document")
+    p_doctor.add_argument("--json", action="store_true", help="machine-readable output")
 
     args = parser.parse_args(argv)
 
@@ -243,11 +244,43 @@ def main(argv: list[str] | None = None) -> None:
                 no_summary += 1
         servers = spec_servers(spec)
         variabled = [s for s in servers if "{" in s]
+        security = ((spec.get("components") or {}).get("securitySchemes") or {})
+        deprecated = sum(1 for _m, _p, op in iter_operations(spec) if op.get("deprecated"))
         def ok(s: str) -> str:
             return f"\033[32m{s}\033[0m" if USE_COLOR else s
 
         def warn(s: str) -> str:
             return f"\033[33m{s}\033[0m" if USE_COLOR else s
+
+        warnings = []
+        if missing_id:
+            warnings.append(f"{missing_id}/{total} operations have no operationId")
+        if no_summary:
+            warnings.append(f"{no_summary}/{total} operations have no summary")
+        if variabled:
+            warnings.append(f"server URL(s) contain variables: {', '.join(variabled)}")
+        if not servers:
+            warnings.append("no servers declared")
+        elif not servers[0].startswith(("http://", "https://")):
+            warnings.append(f"server URL '{servers[0]}' is relative")
+        if security:
+            warnings.append(f"spec declares security schemes: {', '.join(sorted(security))}")
+        if deprecated:
+            warnings.append(f"{deprecated} deprecated operation(s) will be exposed")
+        if total > 50:
+            warnings.append(f"{total} operations is a large tool surface")
+        if args.json:
+            print(json.dumps({
+                "ok": not warnings,
+                "operations": total,
+                "missing_operation_id": missing_id,
+                "missing_summary": no_summary,
+                "warnings": warnings,
+                "exit_hints": ["pass --base-url"] if not servers else [],
+            }, ensure_ascii=False))
+            if warnings:
+                sys.exit(1)
+            return
 
         print(f"openapi: {spec.get('openapi') or spec.get('swagger')}")
         print(f"title:   {spec.get('info', {}).get('title', '(untitled)')}")
@@ -262,10 +295,8 @@ def main(argv: list[str] | None = None) -> None:
             print(warn(f"warning: server URL(s) contain variables: {', '.join(variabled)} — pass --base-url"))
         if servers and not servers[0].startswith(("http://", "https://")):
             print(warn(f"warning: server URL '{servers[0]}' is relative — pass --base-url with the absolute URL"))
-        security = ((spec.get("components") or {}).get("securitySchemes") or {})
         if security:
             print(warn(f"warning: spec declares security schemes ({', '.join(sorted(security))}) — serve with --auth-env/--auth-style or calls will 401"))
-        deprecated = sum(1 for _m, _p, op in iter_operations(spec) if op.get("deprecated"))
         if deprecated:
             print(warn(f"warning: {deprecated} deprecated operation(s) will be exposed (filter with --tag/--exclude if unintended)"))
         if total > 50:
