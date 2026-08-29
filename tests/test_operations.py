@@ -221,7 +221,7 @@ def test_config_auto_discovery_and_env_selection(tmp_path, monkeypatch, api, cap
     spec_payload["servers"] = [{"url": api}]
     spec_path.write_text(json.dumps(spec_payload), encoding="utf-8")
     (tmp_path / ".mcpify.toml").write_text(
-        f'[serve]\nspec = "{spec_path}"\n[envs.dev]\nbase-url = "{api}"\n',
+        f'[serve]\nspec = "{spec_path.as_posix()}"\n[envs.dev]\nbase-url = "{api}"\n',
         encoding="utf-8",
     )
     main(["serve", "--env", "dev"])  # empty stdin: the serve loop returns
@@ -309,7 +309,7 @@ def test_init_prefill_flags_skip_questions(tmp_path, monkeypatch, capsys, api):
     main(["init", "--config", str(tmp_path / "c.toml"),
           "--spec", str(spec_path), "--base-url", api])
     doc = (tmp_path / "c.toml").read_text(encoding="utf-8")
-    assert f'base-url = "{api}"' in doc
+    assert f"base-url = '{api}'" in doc
 
 
 def test_init_refuses_to_overwrite(tmp_path, monkeypatch, capsys):
@@ -651,21 +651,16 @@ def test_status_command_reachable_exit_zero(api, capsys, tmp_path):
     assert "reachable" in capsys.readouterr().out
 
 
-def test_status_command_unreachable_exit_two(capsys):
+def test_status_command_unreachable_exit_two(capsys, tmp_path):
     with pytest.raises(SystemExit) as exc:
         main(["status", json.dumps(SPEC).replace("PLACEHOLDER", "x")])
-    # above line would not be a file; use a real spec file with dead server
-    import tempfile
-    from pathlib import Path
-
-    spec_path = Path(tempfile.mkstemp(suffix=".json")[1])
+    spec_path = tmp_path / "dead.json"
     olus = dict(SPEC)
     olus["servers"] = [{"url": "http://127.0.0.1:1"}]
     spec_path.write_text(json.dumps(olus), encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
         main(["status", str(spec_path)])
     assert exc.value.code == 2
-    spec_path.unlink()
 
 
 def test_status_json_output(api, capsys, tmp_path):

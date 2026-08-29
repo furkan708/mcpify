@@ -34,6 +34,29 @@ KNOWN_KEYS = frozenset({
 _ENV_KEYS = KNOWN_KEYS - {"default-env"}
 
 
+_BASIC_ESCAPES = {"\\": "\\", '"': '"', "n": "\n", "t": "\t", "r": "\r"}
+
+
+def _unescape_basic(body: str, lineno: int) -> str:
+    """Resolve TOML basic-string escapes (subset: \\ \" \n \t \r)."""
+    out: list[str] = []
+    i = 0
+    while i < len(body):
+        ch = body[i]
+        if ch != "\\":
+            out.append(ch)
+            i += 1
+            continue
+        if i + 1 >= len(body) or body[i + 1] not in _BASIC_ESCAPES:
+            raise ValueError(
+                f".mcpify.toml line {lineno}: unsupported escape \\{body[i + 1:i + 2]} "
+                "(write Windows paths with single quotes: 'C:\\path')"
+            )
+        out.append(_BASIC_ESCAPES[body[i + 1]])
+        i += 2
+    return "".join(out)
+
+
 def _parse_mini_toml(text: str) -> dict:
     """Parse the TOML subset mcpify writes: tables, strings, ints,
     booleans, string arrays, # comments. Raises ValueError on anything
@@ -59,12 +82,17 @@ def _parse_mini_toml(text: str) -> dict:
             items = [s.strip() for s in inner.split(",")] if inner else []
             parsed = []
             for item in items:
-                if not (item.startswith('"') and item.endswith('"')):
+                if item.startswith('"') and item.endswith('"'):
+                    parsed.append(_unescape_basic(item[1:-1], lineno))
+                elif item.startswith("'") and item.endswith("'"):
+                    parsed.append(item[1:-1])
+                else:
                     raise ValueError(f".mcpify.toml line {lineno}: arrays of strings only")
-                parsed.append(item[1:-1])
             table[key] = parsed
         elif value.startswith('"') and value.endswith('"'):
-            table[key] = value[1:-1]
+            table[key] = _unescape_basic(value[1:-1], lineno)
+        elif value.startswith("'") and value.endswith("'"):
+            table[key] = value[1:-1]  # TOML literal string: no escapes
         elif value in ("true", "false"):
             table[key] = value == "true"
         else:
@@ -213,6 +241,14 @@ def apply_to_namespace(settings: dict[str, Any], args: Any) -> list[str]:
 # init wizard (logic separated from I/O for testability)
 # ---------------------------------------------------------------------------
 
+def _toml_string(value: str) -> str:
+    """TOML string for a value: literal quotes when safe (keeps Windows
+    paths readable and un-escaped), basic quotes otherwise."""
+    if "'" not in value:
+        return f"'{value}'"
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def build_config_document(settings: dict) -> str:
     """Serialize serve settings as readable TOML (subset-safe)."""
     def fmt(value: object) -> str:
@@ -221,8 +257,8 @@ def build_config_document(settings: dict) -> str:
         if isinstance(value, int):
             return str(value)
         if isinstance(value, list):
-            return "[" + ", ".join(f'"{v}"' for v in value) + "]"
-        return f'"{value}"'
+            return "[" + ", ".join(_toml_string(str(v)) for v in value) + "]"
+        return _toml_string(str(value))
 
     order = [
         "spec", "base-url", "name", "auth-env", "auth-style", "auth-name",
