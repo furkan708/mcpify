@@ -207,13 +207,10 @@ def test_cache_warm_pre_calls_argument_free_gets(upstream, monkeypatch):
 
 
 def test_warm_without_cache_prints_note(capsys):
-    import argparse as ap
-
     from mcpify.cli import _start_cache_warm
 
     spec_dict = load_spec("examples/petstore.json")
     server = ApiServer(spec_dict, "http://upstream.invalid/v1")
-    args = ap.Namespace()
     _start_cache_warm(server)
     assert "no effect without --cache-ttl" in capsys.readouterr().err
 
@@ -255,7 +252,7 @@ def test_scoped_http_fleet_filters_lists_and_gates_calls(upstream):
     base = f"http://127.0.0.1:{httpd.server_port}/"
     try:
         # unknown token -> 401
-        status, _ = post(base, rpc("tools/list"), {"Authorization": "Bearer nope"})
+        status, _body = post(base, rpc("tools/list"), {"Authorization": "Bearer nope"})
         assert status == 401
         # readonly sees only list_*
         _, body = post(base, rpc("tools/list"), {"Authorization": "Bearer tok-read"})

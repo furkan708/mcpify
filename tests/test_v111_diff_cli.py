@@ -2,6 +2,7 @@
 `mcpify diff` CLI contract (exit 0 clean / 1 breaking / 2 usage)."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -197,7 +198,9 @@ def test_diff_documents_roundtrip(tmp_path, old_spec):
         "/pets": {"get": {"operationId": "listPets", "summary": "List pets",
                           "parameters": [], "responses": {"200": {"description": "ok"}}}},
     })
-    report = diff_documents(open(old_spec).read(), open(new).read())
+    old_text = Path(old_spec).read_text(encoding="utf-8")
+    new_text = Path(new).read_text(encoding="utf-8")
+    report = diff_documents(old_text, new_text)
     assert report["breaking"] is True  # two operations removed
     assert report["removed"] == ["POST /pets", "GET /pets/{id}"] or report["removed"]
 
