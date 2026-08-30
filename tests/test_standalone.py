@@ -74,6 +74,18 @@ def test_generate_url_spec_stays_remote(spec_file, tmp_path):
     assert 'SPEC_URL = "https://example.com/openapi.json"' in source
 
 
+def test_generate_windows_style_path_compiles(spec_file, tmp_path):
+    """Regression: the generated docstring is a raw string, so a Windows
+    path (backslashes, \\U escape sequences) must never break it. The
+    file name itself carries backslashes — legal on Linux, so this runs
+    in CI on both platforms and pins the v1.5.1 escape bug class shut."""
+    weird = tmp_path / "C:\\Users\\someone\\spec.json"
+    weird.write_text(Path(spec_file).read_text(encoding="utf-8"), encoding="utf-8")
+    out = tmp_path / "server.py"
+    generate(str(weird), str(out), ["--log-file", "C:\\logs\\mcp.log"])
+    compile(out.read_text(encoding="utf-8"), str(out), "exec")  # must parse
+
+
 def test_generate_warns_on_embedded_http_token(spec_file, tmp_path):
     out = tmp_path / "server.py"
     warnings = generate(spec_file, str(out), ["--http", "8080", "--http-token", "hunter2"])

@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-08-30
+
+### Fixed
+- `mcpify output-server`: the generated script's docstring is now a raw
+  string, so Windows paths (`C:\Users\...`) inside it can no longer
+  produce a `\U` unicode-escape SyntaxError. Found by Windows CI; pinned
+  by a regression test that generates from a backslash-carrying path on
+  both platforms, plus a generation-time refusal for triple quotes.
+
 ## [1.6.1] - 2026-08-30
 
 ### Fixed
