@@ -35,6 +35,25 @@ mcpify list https://api.example.com/openapi.json
 - Specs with **external `$ref` documents** are not resolved over the
   network. Bundle the spec first (most generators have a "bundle" option).
 
+### Multiple declared servers: `--server`
+
+Specs often declare several `servers[]` entries (prod, staging, dev).
+Pick one by 1-based index or by name (matched against each entry's
+description, or its URL as a substring):
+
+```bash
+mcpify serve spec.json --server 2          # the second declared server
+mcpify serve spec.json --server staging    # description or URL match
+mcpify status spec.json --server prod      # works for status too
+```
+
+Precedence: `--base-url` (explicit override) beats `--server`, which
+beats the `servers[0]` default. A wrong choice fails with the full
+numbered listing of what the spec declares. The selected entry's server
+variables still need defaults (or `--base-url`). `mcpify doctor` hints
+at this whenever a spec declares more than one server, and the `server`
+key is accepted in config files.
+
 ## 2. Authentication patterns
 
 Credentials are **never** read from the spec, a CLI flag, or the model's
@@ -415,6 +434,9 @@ style and env variable, read-only mode, cache/retry, and writes
 `.mcpify.toml`. Prefill any answer with `--spec` / `--base-url`.
 
 ## Operational flags
+
+- `--server INDEX|NAME` — pick among the spec's declared `servers[]`
+  entries (see §1); `--base-url` overrides it
 
 ```bash
 mcpify serve spec.json \

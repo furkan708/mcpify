@@ -75,12 +75,45 @@ def filter_tools(tools: list[dict], args: argparse.Namespace) -> list[dict]:
     return kept
 
 
-def _base_url(spec: dict, override: str | None) -> str:
+def _pick_server(servers: list, choice: str) -> dict:
+    """Resolve the --server flag to one of the spec's declared servers.
+
+    Accepts a 1-based index or a name matched against each server's
+    description (exact or whole-word, case-insensitive) or URL
+    (substring). Fails with the full listing so the fix is obvious."""
+    entries = [s if isinstance(s, dict) else {"url": str(s)} for s in servers]
+    listing = "; ".join(
+        f"{index + 1}: {entry.get('url', '')}"
+        + (f" ({entry['description']})" if entry.get("description") else "")
+        for index, entry in enumerate(entries)
+    )
+    if choice.isdigit():
+        index = int(choice)
+        if 1 <= index <= len(entries):
+            return entries[index - 1]
+        raise SpecError(
+            f"--server {choice}: index out of range (the spec declares "
+            f"{len(entries)} server(s): {listing})"
+        )
+    needle = choice.lower()
+    for entry in entries:
+        description = str(entry.get("description", "")).lower()
+        url = str(entry.get("url", "")).lower()
+        if needle == description or needle in description.split() or needle in url:
+            return entry
+    raise SpecError(f"--server {choice}: no server matches (declared: {listing})")
+
+
+def _base_url(spec: dict, override: str | None, server: str | None = None) -> str:
     if override:
         return override
     servers = spec.get("servers") or []
     if servers:
         entry = servers[0] if isinstance(servers[0], dict) else {"url": str(servers[0])}
+        if server is not None:
+            # explicit selection wins over the servers[0] default; --base-url
+            # (checked above) still wins over --server
+            entry = _pick_server(servers, server)
         url = str(entry.get("url", ""))
         # substitute server variables from their declared defaults
         variables = entry.get("variables")
@@ -113,6 +146,7 @@ def _add_serve_options(p: argparse.ArgumentParser, with_http: bool) -> None:
     a config file or flag set means one thing everywhere."""
     p.add_argument("spec", nargs="?", help="path or URL of an OpenAPI document (bare origin auto-discovers; may come from the config)")
     p.add_argument("--base-url", help="API base URL (default: spec servers[0])")
+    p.add_argument("--server", help="pick among the spec's declared servers by 1-based index or name (description/URL match), e.g. --server 2 or --server staging")
     p.add_argument("--name", default="mcpify", help="server name reported to clients")
     p.add_argument("--auth-env", help="env variable holding the API credential")
     p.add_argument(
@@ -300,6 +334,7 @@ def main(argv: list[str] | None = None) -> None:
     p_status.add_argument("--config", help="config file (auto-discovered when omitted)")
     p_status.add_argument("--env", help="environment section from the config ([envs.NAME])")
     p_status.add_argument("--base-url", help="override the API base URL")
+    p_status.add_argument("--server", help="pick among the spec's declared servers (index or name)")
     p_status.add_argument("--timeout", type=float, default=10.0, help="probe timeout seconds")
     p_status.add_argument("--json", action="store_true", help="machine-readable output")
 
@@ -400,7 +435,7 @@ def main(argv: list[str] | None = None) -> None:
         from .api_server import ApiServer
 
         try:
-            base = _base_url(spec, args.base_url)
+            base = _base_url(spec, args.base_url, getattr(args, "server", None))
         except SpecError as err:
             _fail(str(err))
         server = ApiServer(
@@ -452,7 +487,7 @@ def main(argv: list[str] | None = None) -> None:
         from .api_server import ApiServer
 
         try:
-            base = _base_url(spec, args.base_url)
+            base = _base_url(spec, args.base_url, getattr(args, "server", None))
         except SpecError as err:
             _fail(str(err))
         server = ApiServer(
@@ -529,7 +564,7 @@ def main(argv: list[str] | None = None) -> None:
         except SpecError as err:
             _fail(str(err))
         try:
-            base = _base_url(spec, args.base_url)
+            base = _base_url(spec, args.base_url, getattr(args, "server", None))
         except SpecError as err:
             _fail(str(err))
         from .http_client import execute
@@ -590,6 +625,9 @@ def main(argv: list[str] | None = None) -> None:
         def ok(s: str) -> str:
             return f"\033[32m{s}\033[0m" if USE_COLOR else s
 
+        def dim(s: str) -> str:
+            return f"\033[2m{s}\033[0m" if USE_COLOR else s
+
         def warn(s: str) -> str:
             return f"\033[33m{s}\033[0m" if USE_COLOR else s
 
@@ -628,6 +666,8 @@ def main(argv: list[str] | None = None) -> None:
         print(f"paths:   {len(spec.get('paths', {}))}")
         print(f"tools:   {len(spec_to_tools(spec))} operations")
         print(f"servers: {', '.join(servers) or warn('none declared (pass --base-url)')}")
+        if len(servers) > 1:
+            print(dim(f"tip:      {len(servers)} servers declared — pick one with --server INDEX|NAME (e.g. --server 2)"))
         if missing_id:
             print(warn(f"warning: {missing_id}/{total} operations have no operationId (names fall back to method_path)"))
         if no_summary:

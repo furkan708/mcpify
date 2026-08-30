@@ -11,7 +11,7 @@ English | [Türkçe](README.tr.md)
   <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
 </p>
 
-[![Tests](https://img.shields.io/badge/tests-246%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-263%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
 [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/ci.yml)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-4A90D9)](server.json)
@@ -26,7 +26,7 @@ English | [Türkçe](README.tr.md)
 
 **Turn any OpenAPI REST API into an [MCP](https://modelcontextprotocol.io) server** — so Claude Code, Cursor, and every other MCP client can call your API directly.
 
-mcpify is **focused, production-ready, and CLI-first**: one job (OpenAPI → MCP), zero runtime dependencies. Focused doesn't mean small — 246 tests across sixteen suites, two transports (stdio + HTTP), dual MCP-spec compatibility, OAuth2, a policy layer, caching, safe retries, and health probes back that one job.
+mcpify is **focused, production-ready, and CLI-first**: one job (OpenAPI → MCP), zero runtime dependencies. Focused doesn't mean small — 263 tests across seventeen suites, two transports (stdio + HTTP), dual MCP-spec compatibility, OAuth2, a policy layer, caching, safe retries, and health probes back that one job.
 
 
 Your company has a REST API. Your AI agent needs to call it. Until now that
@@ -55,6 +55,9 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   APIs: `--deny REGEX` hides mutating GETs, `--allow REGEX` re-includes
   read-style POST endpoints. Deny always wins.
 - **`mcpify doctor`** — tells you if your spec is agent-friendly before you ship
+- **Multiple environments? Pick one.** Specs declaring
+  prod/staging/dev `servers[]` get `--server 2` or `--server staging`
+  (description or URL match) instead of a hand-typed `--base-url`
 - **Two transports, one tool surface.** `serve` speaks stdio to local
   agents; `serve --http 8080` speaks MCP Streamable HTTP so a whole team
   (or a gateway) can share one server — optional bearer token with
@@ -80,7 +83,7 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   `outputSchema`/`structuredContent`, remediation-grade errors that teach the
   next call, dry-run request previews, and a `--lazy` search-then-call mode
   that cut api.weather.gov's listing by **95.5%** (38,882 → 1,741 chars)
-- **246 tests across sixteen suites** — including full MCP protocol runs
+- **263 tests across seventeen suites** — including full MCP protocol runs
   over stdio *and* over HTTP against real local APIs and the **live
   api.weather.gov document** (69 tools, 16 enum'd parameters)
 
@@ -224,7 +227,7 @@ warning: 30/41 operations have no summary (agents see no description)
 
 ```
 mcpify list <spec> [--tag T] [--include P] [--exclude P] [--read-only] [--json]
-mcpify serve <spec> [--base-url URL] [--name N] [--auth-env VAR]
+mcpify serve <spec> [--base-url URL] [--server INDEX|NAME] [--name N] [--auth-env VAR]
                     [--auth-style bearer|header|query] [--auth-name NAME]
                     [--oauth2-token-url URL --oauth2-client-id-env VAR
                      --oauth2-client-secret-env VAR] [--timeout S]
@@ -265,7 +268,7 @@ Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHEC
 
 ## Tests
 
-**246 passing**, plus one live-integration test that loads the real
+**263 passing**, plus one live-integration test that loads the real
 api.weather.gov document (auto-skipped when offline). Every suite runs on
 Python 3.10–3.12 across Linux and Windows; `ruff`, strict `mypy` and
 CodeQL gate every push.
@@ -287,6 +290,7 @@ CodeQL gate every push.
 | OAuth2 client-credentials | 18 | token fetch/cache/refresh with a fake clock, Basic vs body client auth, public clients, every failure mode, 401 self-heal end-to-end |
 | `try` REPL | 26 | piped-stdin sessions: selection by number/name, typed prompts, re-prompt on bad input, `:raw`/`:info`, clean EOF/Ctrl+C exits, read-only surface |
 | `output-server` | 10 | embedded spec integrity, guard rails (existing file, bad spec, unknown flags), secret warnings, and a real subprocess E2E handshake |
+| Server selection | 17 | `--server INDEX|NAME` rules: index, description/URL name matching, error listings, `--base-url` precedence, server-variable defaults, CLI/status/config/doctor wiring |
 | CLI connectivity glue | 10 | `--http` wiring, `MCPIFY_HTTP_TOKEN` fallback, OAuth2 flag rules, config-file keys, wizard option 5, `try` smoke test |
 
 Policy on failures: every bug found in the wild becomes a pinned

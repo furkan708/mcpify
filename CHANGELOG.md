@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-08-30
+
+### Added — server selection (#13)
+- `--server INDEX|NAME` on `serve`, `try` and `status`: pick among the
+  spec's declared `servers[]` entries by 1-based index (`--server 2`) or
+  name (`--server staging` — matched against each entry's description,
+  exact or whole-word and case-insensitive, or its URL as a substring).
+- Errors list every declared server with index, URL and description so
+  the fix is obvious; `--base-url` still wins over `--server`, which
+  wins over the `servers[0]` default; server variables without defaults
+  keep failing fast with the existing actionable message.
+- `mcpify doctor` now hints at `--server` when a spec declares more than
+  one server; the `server` key is accepted in `.mcpify.toml`/yaml/json.
+- Tests: 246 → **263 passing** (new suite: server selection, 17).
+
 ## [1.6.2] - 2026-08-30
 
 ### Fixed

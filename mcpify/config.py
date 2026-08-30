@@ -25,7 +25,7 @@ CONFIG_NAMES = (".mcpify.toml", ".mcpify.yaml", ".mcpify.json")
 # Keys allowed inside [serve] and [envs.NAME]. Everything the serve path
 # consumes; unknown keys are reported (typos should not vanish silently).
 KNOWN_KEYS = frozenset({
-    "spec", "base-url", "name", "auth-env", "auth-style", "auth-name",
+    "spec", "base-url", "server", "name", "auth-env", "auth-style", "auth-name",
     "timeout", "tag", "include", "exclude", "read-only", "allow", "deny",
     "lazy", "enable-preview", "cache-ttl", "retry", "retry-delay",
     "strict", "format", "verbose", "log-file", "default-env",
@@ -271,7 +271,7 @@ def build_config_document(settings: dict) -> str:
         return _toml_string(str(value))
 
     order = [
-        "spec", "base-url", "name", "auth-env", "auth-style", "auth-name",
+        "spec", "base-url", "server", "name", "auth-env", "auth-style", "auth-name",
         "oauth2-token-url", "oauth2-client-id-env", "oauth2-client-secret-env",
         "oauth2-scope", "oauth2-client-auth", "http",
         "read-only", "timeout", "cache-ttl", "retry", "retry-delay",

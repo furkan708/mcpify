@@ -161,6 +161,35 @@ Three decisions shape v1.2.0:
    `spec_to_tools` before operation IDs, so a colliding spec operation
    suffixes (`_2`) instead of shadowing the search/call surface.
 
+## The zero-dependency trade-off
+
+Zero runtime dependencies is a scope decision with a real cost, made on
+purpose:
+
+- **What it buys.** The entire tree is stdlib Python, so a security
+  review reads ~2.4k lines instead of a transitive graph. Installation
+  is one package — when we measured, FastMCP-style frameworks pulled in
+  42; a tool that runs inside *other* people's agents, containers and
+  CI should not drag a dependency tree behind it. Supply-chain attacks
+  (the typosquat/protestware class) have no surface here, and the
+  Python 3.10–3.13 support matrix is limited by the stdlib, not by
+  third-party wheels.
+- **What it costs.** We re-implement small pieces a framework would
+  give us for free: the TOML subset parser, the OAuth2 form-encoding
+  flow, the HTTP server behind `--http`. Each of those is a bounded,
+  spec-driven slice — and each is pinned by its own test suite (the
+  subset parser rejects what it cannot parse rather than guessing; the
+  OAuth2 flow is tested against a real token server with a fake clock;
+  the transport has a wire-level suite).
+- **The escape valve.** When a dependency is genuinely unavoidable, it
+  ships as an optional extra, never a requirement — YAML specs need
+  `pip install 'mcpify[yaml]'` and the code degrades with a clear
+  message without it.
+
+The rule of thumb: mcpify adopts a dependency when the alternative is
+re-implementing *cryptography or protocol negotiation*, not when the
+alternative is a weekend of careful stdlib work.
+
 ## Scope statement
 
 mcpify is intentionally focused: one job (OpenAPI → MCP), one CLI, zero

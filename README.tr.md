@@ -71,6 +71,7 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 | Doktor | `mcpify doctor ./openapi.json` | Spec'i denetler: eksik operationId, ölü server adresleri vb. |
 | Zaman aşımı | `--timeout 30` | API yavaşsa ajanı bekletmez |
 | Agent yüzeyi | varsayılan + `--lazy`, `--enable-preview` | HTTP'den annotation'lar, structured output, öğreten hatalar; api.weather.gov'da ölçülmüş **%95,5** listeleme kazancı |
+| Sunucu seçimi | `--server 2` / `--server staging` | Spec'te prod/staging gibi birden çok `servers[]` varsa indeks veya isimle seç; `--base-url` hâlâ nihai sözü söyler |
 | İki transport | `serve` / `serve --http 8080` | stdio yerel ajanlar için; Streamable HTTP ekip/gateway paylaşımı için (`--http-token` ile bearer koruması) |
 | OAuth2 client-credentials | `--oauth2-token-url ... --oauth2-client-id-env ...` | Token endpoint'ine bağlanır; token'ı çeker, cache'ler, yeniler, 401'de kendini düzeltir |
 | Terminal REPL'i | `mcpify try ./openapi.json` | Ajan istemcisi olmadan araçları elle çağırın: seç, argüman gir, gerçek yanıtı gör |
@@ -80,7 +81,7 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 
 - **Odaklı ve üretim hazırı:** Tek iş (OpenAPI → MCP), tek arayüz (stdio
   üzerinde tek komut), sıfır runtime bağımlılığı. Odaklılık küçüklük demek değil:
-  16 pakette 246 test, iki transport (stdio + HTTP), çift MCP-spec uyumu, OAuth2,
+  17 pakette 263 test, iki transport (stdio + HTTP), çift MCP-spec uyumu, OAuth2,
   politika katmanı, cache, güvenli retry ve health sorgusu bu tek işi destekliyor.
 - **Token bütçesi:** Her araç tanımı modelin bağlam penceresini (context) tüketir.
   mcpify'ın filtreleriyle yalnızca ilgili uçları açarsınız; CLI tabanlı yaklaşımlardan
@@ -101,7 +102,7 @@ Tam liste: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
 ## Test ve kalite
 
-**246 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
+**263 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
 yükleyen canlı entegrasyon testidir (çevrimdışında otomatik atlanır).
 Tüm paketler Python 3.10–3.12 üzerinde Linux ve Windows'ta koşar; her
 push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
