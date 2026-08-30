@@ -66,7 +66,7 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 | Özellik | Komut | Ne işe yarar |
 |---------|-------|--------------|
 | Salt-okunur mod | `--read-only` | Yalnızca GET uçlarını açar; ajan (agent) okur, yazamaz |
-| Kimlik doğrulama | `--auth-env API_TOKEN --auth-style bearer` | Anahtar ortam değişkeninden okunur; komut satırına veya config'e yazılmaz |
+| Kimlik doğrulama | `--auth-env API_TOKEN --auth-style bearer` | Anahtar ortam değişkeninden okunur; komut satırına veya config'e yazılmaz. **Stil çoğu zaman gerekmez:** spec'in security bildirimlerinden otomatik seçilir (bearer/Basic/header/query, doğru adla) |
 | Uç daraltma | `--tag`, `--include`, `--exclude` | Modele 200 yerine 5 araç gösterir → token tasarrufu |
 | Doktor | `mcpify doctor ./openapi.json` | Spec'i denetler: eksik operationId, ölü server adresleri vb. |
 | Zaman aşımı | `--timeout 30` | API yavaşsa ajanı bekletmez |
@@ -74,6 +74,9 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 | Sunucu seçimi | `--server 2` / `--server staging` | Spec'te prod/staging gibi birden çok `servers[]` varsa indeks veya isimle seç; `--base-url` hâlâ nihai sözü söyler |
 | İki transport | `serve` / `serve --http 8080` | stdio yerel ajanlar için; Streamable HTTP ekip/gateway paylaşımı için (`--http-token` ile bearer koruması) |
 | OAuth2 client-credentials | `--oauth2-token-url ... --oauth2-client-id-env ...` | Token endpoint'ine bağlanır; token'ı çeker, cache'ler, yeniler, 401'de kendini düzeltir |
+| HTTP Basic | `--auth-style basic --auth-env CREDS` | env `kullanici:sifre` tutar; `Authorization: Basic …` üretilir — iç API'lerin klasik akışı |
+| 429 nezaketi | `--wait-on-429 30` | API "Retry-After" dediğinde idempotent çağrı için **bir kez** bekler (üst sınır aşılırsa 429 dürüstçe döner); POST/PATCH asla otomatik beklenmez |
+| Kendi sunucun (bedava) | `deploy/docker-compose.yml` | Otomatik HTTPS'li Caddy + çift katman bearer: hosted-MCP planlarının ayda $9–229 ücretlendirdiğini $5 VPS'e taşır — [Self-hosting rehberi](docs/SELF-HOSTING.md) |
 | Terminal REPL'i | `mcpify try ./openapi.json` | Ajan istemcisi olmadan araçları elle çağırın: seç, argüman gir, gerçek yanıtı gör |
 | Paylaşılabilir sunucu | `mcpify output-server spec.json -o server.py` | serve komutunu küçük bir betiğe gömer; ekip `python3 server.py` der ve aynı sunucuyu alır |
 
@@ -81,7 +84,7 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 
 - **Odaklı ve üretim hazırı:** Tek iş (OpenAPI → MCP), tek arayüz (stdio
   üzerinde tek komut), sıfır runtime bağımlılığı. Odaklılık küçüklük demek değil:
-  17 pakette 263 test, iki transport (stdio + HTTP), çift MCP-spec uyumu, OAuth2,
+  18 pakette 294 test, iki transport (stdio + HTTP), çift MCP-spec uyumu, OAuth2,
   politika katmanı, cache, güvenli retry ve health sorgusu bu tek işi destekliyor.
 - **Token bütçesi:** Her araç tanımı modelin bağlam penceresini (context) tüketir.
   mcpify'ın filtreleriyle yalnızca ilgili uçları açarsınız; CLI tabanlı yaklaşımlardan
@@ -102,7 +105,7 @@ Tam liste: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
 ## Test ve kalite
 
-**263 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
+**294 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
 yükleyen canlı entegrasyon testidir (çevrimdışında otomatik atlanır).
 Tüm paketler Python 3.10–3.12 üzerinde Linux ve Windows'ta koşar; her
 push'ta `ruff`, strict `mypy` ve CodeQL devreye girer

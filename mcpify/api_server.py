@@ -77,6 +77,7 @@ class ApiServer:
         retry: int = 0,
         retry_delay: float = 1.0,
         response_format: str = "auto",
+        wait_on_429: float = 0.0,
     ) -> None:
         self.spec = spec
         self.base_url = base_url
@@ -99,6 +100,7 @@ class ApiServer:
         self.cache = ResponseCache(cache_ttl) if cache_ttl and cache_ttl > 0 else None
         self.retry = retry
         self.retry_delay = retry_delay
+        self.wait_on_429 = wait_on_429
         self.response_format = response_format
         self.meta_tools: dict[str, dict] = {t["name"]: t for t in self._build_meta_tools()}
         if lazy:
@@ -231,6 +233,7 @@ class ApiServer:
             cache=self.cache,
             retry=self.retry,
             retry_delay=self.retry_delay,
+            wait_on_429=self.wait_on_429,
         )
         # OAuth2 self-heal: a token that expired server-side (or was
         # revoked mid-flight) surfaces as 401 once. Drop the cached
@@ -246,6 +249,7 @@ class ApiServer:
                 cache=self.cache,
                 retry=self.retry,
                 retry_delay=self.retry_delay,
+                wait_on_429=self.wait_on_429,
             )
         return self._payload_for(tool, result)
 
@@ -567,6 +571,7 @@ def serve(
     retry: int = 0,
     retry_delay: float = 1.0,
     response_format: str = "auto",
+    wait_on_429: float = 0.0,
 ) -> None:
     """Load the spec and block on the stdio loop (the `mcpify serve` entry)."""
     from .spec import load_spec
@@ -585,4 +590,5 @@ def serve(
         retry=retry,
         retry_delay=retry_delay,
         response_format=response_format,
+        wait_on_429=wait_on_429,
     ).serve()

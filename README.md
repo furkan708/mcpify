@@ -11,7 +11,7 @@ English | [Türkçe](README.tr.md)
   <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
 </p>
 
-[![Tests](https://img.shields.io/badge/tests-263%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-294%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
 [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/ci.yml)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-4A90D9)](server.json)
@@ -26,7 +26,7 @@ English | [Türkçe](README.tr.md)
 
 **Turn any OpenAPI REST API into an [MCP](https://modelcontextprotocol.io) server** — so Claude Code, Cursor, and every other MCP client can call your API directly.
 
-mcpify is **focused, production-ready, and CLI-first**: one job (OpenAPI → MCP), zero runtime dependencies. Focused doesn't mean small — 263 tests across seventeen suites, two transports (stdio + HTTP), dual MCP-spec compatibility, OAuth2, a policy layer, caching, safe retries, and health probes back that one job.
+mcpify is **focused, production-ready, and CLI-first**: one job (OpenAPI → MCP), zero runtime dependencies. Focused doesn't mean small — 294 tests across eighteen suites, two transports (stdio + HTTP), dual MCP-spec compatibility, OAuth2, a policy layer, caching, safe retries, and health probes back that one job.
 
 
 Your company has a REST API. Your AI agent needs to call it. Until now that
@@ -38,7 +38,7 @@ mcpify serve https://your-company.com/openapi.json
 
 That's it — every endpoint just became a tool your AI agent can discover, understand, and call.
 
-**Deep docs:** [Usage guide](docs/USAGE.md) — auth patterns, scoping, Docker, troubleshooting · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md)
+**Deep docs:** [Usage guide](docs/USAGE.md) — auth patterns, scoping, Docker, troubleshooting · [Architecture](docs/ARCHITECTURE.md) · [Self-hosting](docs/SELF-HOSTING.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md)
 
 **The launch story:** [How a live weather API broke this tool — and made it better](https://dev.to/furkan708/i-connected-a-real-weather-api-to-claude-in-3-commands-and-the-community-broke-my-tool-in-the-3jid)
 
@@ -65,6 +65,14 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
 - **OAuth2 client-credentials built in** — point it at your identity
   provider's token endpoint; tokens are fetched, cached, refreshed, and
   re-fetched automatically on a mid-flight 401 (RFC 6749, stdlib only)
+- **Auth reads the spec, not a dashboard** — the security declarations
+  in your OpenAPI document configure `--auth-env` automatically (bearer,
+  HTTP basic, header or query with the right name); secured specs with
+  no credential print the exact flags to run. Rate-limited APIs can be
+  honored too: `--wait-on-429` waits out `Retry-After` once, within a cap
+- **Host it yourself for free** — `deploy/docker-compose.yml` (with
+  automatic-HTTPS Caddy) and a hardened systemd unit turn a $5 VPS into
+  what hosted-MCP plans bill $9–$229/month for: [Self-hosting guide](docs/SELF-HOSTING.md)
 - **`mcpify try`** — an interactive terminal REPL to call the generated
   tools without any agent client: pick a tool, fill the arguments, see the
   real response. Same execution path as MCP `tools/call`
@@ -83,7 +91,7 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   `outputSchema`/`structuredContent`, remediation-grade errors that teach the
   next call, dry-run request previews, and a `--lazy` search-then-call mode
   that cut api.weather.gov's listing by **95.5%** (38,882 → 1,741 chars)
-- **263 tests across seventeen suites** — including full MCP protocol runs
+- **294 tests across eighteen suites** — including full MCP protocol runs
   over stdio *and* over HTTP against real local APIs and the **live
   api.weather.gov document** (69 tools, 16 enum'd parameters)
 
@@ -130,14 +138,19 @@ export PETSTORE_KEY="sk-..."
 mcpify serve petstore.json \
   --base-url https://petstore.example.com/v1 \
   --auth-env PETSTORE_KEY \
-  --auth-style bearer \
+  --auth-style bearer \            # optional: auto-detected from the spec
   --read-only
 ```
+
+No explicit style needed in the common case — the spec's security
+declarations pick bearer/basic/header/query (with the right name) for
+you. For HTTP Basic, the env variable holds `username:password`:
+`--auth-style basic --auth-env CREDS`.
 
 | Flag | Meaning |
 | ---- | ------- |
 | `--auth-env VAR` | environment variable holding the credential |
-| `--auth-style bearer\|header\|query` | how it is sent |
+| `--auth-style bearer\|basic\|header\|query` | how it is sent (**default: auto-detected from the spec**) |
 | `--auth-name NAME` | header / query name for non-bearer styles (e.g. `X-API-Key`) |
 
 ### With OAuth2 (client credentials)
@@ -232,7 +245,7 @@ mcpify serve <spec> [--base-url URL] [--server INDEX|NAME] [--name N] [--auth-en
                     [--oauth2-token-url URL --oauth2-client-id-env VAR
                      --oauth2-client-secret-env VAR] [--timeout S]
                     [--read-only] [--tag T] [--include P] [--exclude P]
-                    [--http [HOST:]PORT] [--http-token TOKEN]
+                    [--http [HOST:]PORT] [--http-token TOKEN] [--wait-on-429 SEC]
 mcpify try <spec> [same serve flags]        # interactive REPL, no agent needed
 mcpify output-server <spec> -o FILE [-- <any serve flags>]
 mcpify doctor <spec>
@@ -268,7 +281,7 @@ Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHEC
 
 ## Tests
 
-**263 passing**, plus one live-integration test that loads the real
+**294 passing**, plus one live-integration test that loads the real
 api.weather.gov document (auto-skipped when offline). Every suite runs on
 Python 3.10–3.12 across Linux and Windows; `ruff`, strict `mypy` and
 CodeQL gate every push.
@@ -291,6 +304,8 @@ CodeQL gate every push.
 | `try` REPL | 26 | piped-stdin sessions: selection by number/name, typed prompts, re-prompt on bad input, `:raw`/`:info`, clean EOF/Ctrl+C exits, read-only surface |
 | `output-server` | 10 | embedded spec integrity, guard rails (existing file, bad spec, unknown flags), secret warnings, and a real subprocess E2E handshake |
 | Server selection | 17 | `--server INDEX|NAME` rules: index, description/URL name matching, error listings, `--base-url` precedence, server-variable defaults, CLI/status/config/doctor wiring |
+| Auth auto-detection & Basic | 22 | securitySchemes → style/name resolution (OpenAPI + Swagger 2.0), requirement-order precedence, operation-level security, exact hint text, HTTP Basic header encoding, CLI/try/doctor wiring, explicit-style override |
+| Rate-limit courtesy (`--wait-on-429`) | 9 | Retry-After honored once within cap, cap exceeded returns 429 untouched, missing header falls back to retry delay, HTTP-date form never waits, POST never auto-waited, CLI wiring |
 | CLI connectivity glue | 10 | `--http` wiring, `MCPIFY_HTTP_TOKEN` fallback, OAuth2 flag rules, config-file keys, wizard option 5, `try` smoke test |
 
 Policy on failures: every bug found in the wild becomes a pinned

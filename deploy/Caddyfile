@@ -1,0 +1,8 @@
+# Automatic HTTPS via Let's Encrypt; forwards to mcpify and enforces the
+# same bearer token again at the edge (defense in depth).
+{$DOMAIN} {
+	@unauthorized not Authorization "{$UPSTREAM_TOKEN}"
+	respond @unauthorized 401
+
+	reverse_proxy mcpify:8080
+}

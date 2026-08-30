@@ -1,0 +1,41 @@
+# Team-shared mcpify over HTTPS — a free alternative to hosted-MCP plans.
+#
+#   cp .env.example .env   (set MCPIFY_HTTP_TOKEN and your domain)
+#   docker compose up -d
+#
+# What you get: your API exposed as MCP tools over Streamable HTTP at
+# https://$DOMAIN, TLS included, bearer-protected. Runs on any $5 VPS.
+
+services:
+  mcpify:
+    image: ghcr.io/furkan708/mcpify:latest
+    command:
+      - serve
+      - /spec/openapi.json          # your OpenAPI document (volume-mounted)
+      - --http
+      - 0.0.0.0:8080
+      - --http-token
+      - ${MCPIFY_HTTP_TOKEN:?set MCPIFY_HTTP_TOKEN in .env}
+      - --read-only                 # tighten to your policy
+    volumes:
+      - ./openapi.json:/spec/openapi.json:ro
+    restart: unless-stopped
+    # No ports exposed to the host: Caddy reaches it over the internal network.
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - DOMAIN=${DOMAIN:?set DOMAIN in .env}
+      - UPSTREAM_TOKEN=${MCPIFY_HTTP_TOKEN}
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

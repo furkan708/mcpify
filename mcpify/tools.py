@@ -80,6 +80,72 @@ def annotations_for(method: str, operation: dict) -> dict:
     return annotations
 
 
+def detect_auth(spec: dict) -> dict | None:
+    """Read the spec's security declarations and return the strongest hint
+    for wiring --auth-env: {"style", "name", "oauth2"} or None.
+
+    Order: schemes named in the top-level `security` requirements first,
+    then operation-level requirements, then any remaining declared
+    schemes. Within that order: http bearer > http basic > apiKey header
+    > apiKey query > oauth2/openIdConnect (bearer + a hint to configure
+    the token endpoint). Swagger 2.0's `securityDefinitions` and its
+    `type: basic` are honored too.
+
+    This is what makes auth zero-config in the common case: the spec
+    already says how the API authenticates, so `--auth-env VAR` alone
+    picks the right style and header/parameter name.
+    """
+    components = (spec.get("components") or {}).get("securitySchemes") or {}
+    components = components or (spec.get("securityDefinitions") or {})  # Swagger 2.0
+    if not isinstance(components, dict):
+        components = {}
+
+    requirements = spec.get("security") or []
+    if not requirements:
+        from .spec import iter_operations
+
+        for _method, _path, operation in iter_operations(spec):
+            if operation.get("security"):
+                requirements = operation["security"]
+                break
+
+    ordered: list[dict] = []
+    seen: set[str] = set()
+    for requirement in requirements if isinstance(requirements, list) else []:
+        if isinstance(requirement, dict):
+            for scheme_name in requirement:
+                scheme = components.get(scheme_name)
+                if isinstance(scheme, dict) and scheme_name not in seen:
+                    seen.add(scheme_name)
+                    ordered.append(scheme)
+    for scheme_name, scheme in components.items():
+        if scheme_name not in seen and isinstance(scheme, dict):
+            ordered.append(scheme)
+
+    for scheme in ordered:
+        scheme_type = scheme.get("type")
+        if scheme_type == "http":
+            negotiated = str(scheme.get("scheme", "")).lower()
+            if negotiated == "bearer":
+                return {"style": "bearer", "name": None, "oauth2": False, "scheme": scheme}
+            if negotiated == "basic":
+                return {"style": "basic", "name": None, "oauth2": False, "scheme": scheme}
+        elif scheme_type == "apiKey":
+            where = scheme.get("in")
+            if where == "header":
+                return {"style": "header", "name": str(scheme.get("name", "X-API-Key")),
+                        "oauth2": False, "scheme": scheme}
+            if where == "query":
+                return {"style": "query", "name": str(scheme.get("name", "api_key")),
+                        "oauth2": False, "scheme": scheme}
+        elif scheme_type in ("oauth2", "openIdConnect", "basic"):  # "basic": Swagger 2.0
+            return {"style": "bearer" if scheme_type != "basic" else "basic",
+                    "name": None,
+                    "oauth2": scheme_type in ("oauth2", "openIdConnect"),
+                    "scheme": scheme}
+    return None
+
+
 def output_schema_for(operation: dict, spec: dict) -> dict | None:
     """Structured-output schema from the operation's documented 2xx JSON body.
 
@@ -358,11 +424,14 @@ class AuthConfig:
     """Authentication injected into outgoing requests from an env variable."""
 
     def __init__(self, env_var: str, style: str = "bearer", name: str | None = None):
+        if style not in ("bearer", "header", "query", "basic"):
+            raise ValueError(f"unknown auth style: {style}")
         self.env_var = env_var
         self.style = style
         self.name = name
 
     def headers(self) -> dict:
+        import base64
         import os
 
         value = os.environ.get(self.env_var)
@@ -373,6 +442,14 @@ class AuthConfig:
             )
         if self.style == "bearer":
             return {"Authorization": f"Bearer {value}"}
+        if self.style == "basic":
+            if ":" not in value:
+                raise RequestError(
+                    f"environment variable '{self.env_var}' must hold "
+                    "'username:password' for --auth-style basic"
+                )
+            raw = base64.b64encode(value.encode("utf-8")).decode("ascii")
+            return {"Authorization": f"Basic {raw}"}
         if self.style == "header":
             return {(self.name or "X-API-Key"): value}
         return {}  # query style is applied at URL build time

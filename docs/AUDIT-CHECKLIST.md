@@ -86,7 +86,7 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
   non-idempotent retries belong at the gateway (rationale in USAGE.md)
 
 ## 10. Test & validation
-- ✅ **263 passing tests across seventeen suites** (264 collected; one
+- ✅ **294 passing tests across eighteen suites** (295 collected; one
   live-integration test auto-skips offline) — full matrix in the README
 - ✅ Quality gates on every push: ruff, mypy `strict`, CodeQL,
   Python 3.10–3.12 × Linux + Windows
@@ -107,4 +107,4 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
   every failure mode, and the one-shot 401 self-heal
 
 ---
-*Audited 2026-08-30 against v1.7.0. Re-run on every release.*
+*Audited 2026-08-30 against v1.8.0. Re-run on every release.*

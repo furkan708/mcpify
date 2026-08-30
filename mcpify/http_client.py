@@ -96,12 +96,27 @@ class ResponseCache:
             self._store[key] = {"expires": time.monotonic() + self.ttl, "result": result}
 
 
+def _retry_after_seconds(result: dict, fallback: float) -> float | None:
+    """Parse the Retry-After header (integer seconds). HTTP-date form and
+    unparsable values return None (nothing sane to wait); a missing
+    header falls back to the configured retry delay."""
+    value = (result.get("headers") or {}).get("Retry-After")
+    if value is None:
+        return fallback
+    try:
+        seconds = float(str(value).strip())
+    except ValueError:
+        return None  # HTTP-date form: not worth a date parser here
+    return max(seconds, 0.0)
+
+
 def execute(
     request: dict,
     timeout: float = 30.0,
     cache: ResponseCache | None = None,
     retry: int = 0,
     retry_delay: float = 1.0,
+    wait_on_429: float = 0.0,
 ) -> dict:
     """Perform the request and return {status, body, json, headers}.
 
@@ -109,21 +124,38 @@ def execute(
     the agent can see API error payloads and react to them. With a cache
     attached, GET+200 answers are served from memory within the TTL. With
     retry > 0, idempotent methods are re-attempted on 502/503/504 and on
-    connection failures — never on 4xx, never for POST/PATCH.
+    connection failures — never on 4xx, never for POST/PATCH. With
+    wait_on_429 > 0, a 429 on an idempotent method is honored ONCE: the
+    call sleeps min(Retry-After, wait_on_429) seconds (the API explicitly
+    asked for the delay, so this is not a blind retry) and tries again;
+    a Retry-After longer than the cap returns the 429 untouched.
     """
     attempts = max(0, min(retry, MAX_RETRIES))
-    result = {}
-    for attempt in range(attempts + 1):
+    attempt = 0
+    waited_429 = False
+    while True:
         result = _execute_once(request, timeout, cache)
         method = request.get("method", "GET").upper()
+        if (
+            result["status"] == 429
+            and not waited_429
+            and wait_on_429 > 0
+            and method in IDEMPOTENT_METHODS
+        ):
+            delay = _retry_after_seconds(result, retry_delay)
+            if delay is not None and delay <= wait_on_429:
+                _log("WARNING", f"429 rate limited — honoring Retry-After, waiting {delay:g}s once")
+                time.sleep(delay)
+                waited_429 = True
+                continue
         retryable = result["status"] in RETRYABLE_STATUS or result["status"] == 0
         if attempt < attempts and retryable and method in IDEMPOTENT_METHODS:
             _log("WARNING", f"retry {attempt + 1}/{attempts} for {method} "
                             f"(status {result['status']}, waiting {retry_delay}s)")
             time.sleep(retry_delay)
+            attempt += 1
             continue
         return result
-    return result  # unreachable; keeps mypy happy
 
 
 def _execute_once(request: dict, timeout: float, cache: ResponseCache | None = None) -> dict:

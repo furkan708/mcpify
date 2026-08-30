@@ -151,11 +151,15 @@ def _add_serve_options(p: argparse.ArgumentParser, with_http: bool) -> None:
     p.add_argument("--auth-env", help="env variable holding the API credential")
     p.add_argument(
         "--auth-style",
-        choices=("bearer", "header", "query"),
-        default="bearer",
-        help="how to send the credential (default: bearer)",
+        choices=("bearer", "basic", "header", "query"),
+        default=None,
+        help="how to send the credential (default: auto-detected from the spec's "
+        "security declarations, else bearer)",
     )
     p.add_argument("--auth-name", help="header or query parameter name for non-bearer auth")
+    p.add_argument("--wait-on-429", type=float, default=0.0, metavar="SEC",
+                   help="on 429, honor Retry-After (or the retry delay) once for "
+                   "idempotent calls when the wait is at most SEC seconds (default: off)")
     p.add_argument("--oauth2-token-url", help="OAuth2 client-credentials token endpoint (RFC 6749)")
     p.add_argument("--oauth2-client-id-env", help="env variable holding the OAuth2 client id")
     p.add_argument("--oauth2-client-secret-env", help="env variable holding the OAuth2 client secret")
@@ -203,10 +207,33 @@ def _add_serve_options(p: argparse.ArgumentParser, with_http: bool) -> None:
                        "(falls back to MCPIFY_HTTP_TOKEN)")
 
 
-def _resolve_auth(args: argparse.Namespace) -> AuthConfig | OAuth2ClientCredentials | None:
+def _auth_hint(spec: dict | None) -> str | None:
+    """Exact, copy-pasteable serve flags for the spec's declared auth."""
+    if spec is None:
+        return None
+    from .tools import detect_auth
+
+    detected = detect_auth(spec)
+    if detected is None:
+        return None
+    style = detected["style"]
+    if style == "bearer":
+        return "--auth-env API_TOKEN"
+    if style == "basic":
+        return "--auth-env API_CREDENTIALS  # holds 'username:password'"
+    if style == "header":
+        return f"--auth-env API_KEY --auth-style header --auth-name {detected['name']}"
+    return f"--auth-env API_KEY --auth-style query --auth-name {detected['name']}"
+
+
+def _resolve_auth(args: argparse.Namespace, spec: dict | None = None) -> AuthConfig | OAuth2ClientCredentials | None:
     """Build the auth provider from flags. OAuth2 (client-credentials) and
-    the static --auth-env credential are mutually exclusive modes."""
+    the static --auth-env credential are mutually exclusive modes. With
+    --auth-env and no explicit style, the spec's security declarations
+    pick the style (bearer/basic/header-name/query-name) — zero-config
+    auth in the common case; plain bearer stays the final fallback."""
     from .http_client import OAuth2ClientCredentials
+    from .tools import detect_auth
 
     token_url = getattr(args, "oauth2_token_url", None)
     if token_url:
@@ -227,7 +254,19 @@ def _resolve_auth(args: argparse.Namespace) -> AuthConfig | OAuth2ClientCredenti
             timeout=args.timeout,
         )
     if getattr(args, "auth_env", None):
-        return AuthConfig(args.auth_env, args.auth_style, args.auth_name)
+        style = getattr(args, "auth_style", None)
+        name = getattr(args, "auth_name", None)
+        if style is None:
+            detected = detect_auth(spec) if spec is not None else None
+            if detected is not None and detected["style"] in ("bearer", "basic", "header", "query"):
+                style = detected["style"]
+                name = name or detected.get("name")
+                print(
+                    f"auth: style auto-detected from the spec -> {style}"
+                    + (f" ({name})" if name else ""),
+                    file=sys.stderr,
+                )
+        return AuthConfig(args.auth_env, style or "bearer", name)
     return None
 
 
@@ -431,7 +470,15 @@ def main(argv: list[str] | None = None) -> None:
         from .http_client import set_logging
 
         set_logging(args.verbose, args.log_file)
-        auth = _resolve_auth(args)
+        auth = _resolve_auth(args, spec)
+        if auth is None:
+            hint = _auth_hint(spec)
+            if hint:
+                print(
+                    "note: this API declares authentication but no credential is "
+                    f"configured — add {hint}",
+                    file=sys.stderr,
+                )
         from .api_server import ApiServer
 
         try:
@@ -451,6 +498,7 @@ def main(argv: list[str] | None = None) -> None:
             retry=args.retry,
             retry_delay=args.retry_delay,
             response_format=args.format,
+            wait_on_429=getattr(args, "wait_on_429", 0.0),
         )
         if getattr(args, "http", None):
             from .http_transport import parse_http_bind, serve_http
@@ -468,6 +516,8 @@ def main(argv: list[str] | None = None) -> None:
             ekstra.append(f"cache {args.cache_ttl:g}s")
         if args.retry:
             ekstra.append(f"retry {args.retry}x{args.retry_delay:g}s")
+        if getattr(args, "wait_on_429", 0.0):
+            ekstra.append(f"429-wait {args.wait_on_429:g}s")
         if args.strict:
             ekstra.append("strict")
         if args.format != "auto":
@@ -483,7 +533,7 @@ def main(argv: list[str] | None = None) -> None:
         from .http_client import set_logging
 
         set_logging(args.verbose, getattr(args, "log_file", None))
-        auth = _resolve_auth(args)
+        auth = _resolve_auth(args, spec)
         from .api_server import ApiServer
 
         try:
@@ -503,6 +553,7 @@ def main(argv: list[str] | None = None) -> None:
             retry=args.retry,
             retry_delay=args.retry_delay,
             response_format=args.format,
+            wait_on_429=getattr(args, "wait_on_429", 0.0),
         )
         print(
             f"mcpify try [{args.name}]: {len(tools)} tools from {args.spec} -> {base} "
@@ -643,7 +694,11 @@ def main(argv: list[str] | None = None) -> None:
         elif not servers[0].startswith(("http://", "https://")):
             warnings.append(f"server URL '{servers[0]}' is relative")
         if security:
-            warnings.append(f"spec declares security schemes: {', '.join(sorted(security))}")
+            hint = _auth_hint(spec)
+            warnings.append(
+                "spec declares security schemes: " + ", ".join(sorted(security))
+                + (f" (serve with {hint})" if hint else "")
+            )
         if deprecated:
             warnings.append(f"{deprecated} deprecated operation(s) will be exposed")
         if total > 50:
@@ -677,7 +732,12 @@ def main(argv: list[str] | None = None) -> None:
         if servers and not servers[0].startswith(("http://", "https://")):
             print(warn(f"warning: server URL '{servers[0]}' is relative — pass --base-url with the absolute URL"))
         if security:
-            print(warn(f"warning: spec declares security schemes ({', '.join(sorted(security))}) — serve with --auth-env/--auth-style or calls will 401"))
+            hint = _auth_hint(spec)
+            print(warn(
+                f"warning: spec declares security schemes ({', '.join(sorted(security))})"
+                + (f" — serve with {hint} and calls authenticate automatically" if hint
+                   else " — serve with --auth-env/--auth-style or calls will 401")
+            ))
         if deprecated:
             print(warn(f"warning: {deprecated} deprecated operation(s) will be exposed (filter with --tag/--exclude if unintended)"))
         if total > 50:

@@ -83,6 +83,36 @@ mcpify serve acme.json --auth-env ACME_KEY --auth-style query --auth-name api_ke
 # -> https://api.acme.com/v1/pets?api_key=<value>
 ```
 
+### Auto-detected from the spec (the common case)
+
+The spec's `security` declarations already say how the API authenticates.
+Give mcpify a credential and it wires the rest itself:
+
+```bash
+mcpify serve spec.json --auth-env API_TOKEN     # bearer? basic? header? query? — read from the spec
+```
+
+The detection covers `http: bearer`, `http: basic`, `apiKey` in header
+or query (with the declared name), Swagger 2.0 `securityDefinitions`,
+and operation-level security when the top level is silent. What you'll
+see:
+
+- the chosen style is echoed to stderr
+  (`auth: style auto-detected from the spec -> header (X-API-Key)`)
+- serving a secured spec **without** a credential prints the exact
+  flags to run — `mcpify doctor` shows them too
+- an explicit `--auth-style` always wins over detection
+
+### HTTP Basic
+
+The env variable holds `username:password`; mcpify produces the
+`Authorization: Basic base64(...)` header:
+
+```bash
+export CREDS="svc-account:secret"
+mcpify serve spec.json --auth-env CREDS --auth-style basic
+```
+
 ### No auth / public APIs
 
 Omit all auth flags. Nothing is injected.
@@ -437,6 +467,11 @@ style and env variable, read-only mode, cache/retry, and writes
 
 - `--server INDEX|NAME` — pick among the spec's declared `servers[]`
   entries (see §1); `--base-url` overrides it
+- `--wait-on-429 SEC` — opt-in rate-limit courtesy: on 429 for an
+  idempotent call, wait `min(Retry-After, SEC)` seconds ONCE and retry;
+  a wait beyond the cap returns the 429 so the agent can decide.
+  POST/PATCH are never auto-waited. Off by default — mcpify still never
+  retries anything automatically unless you ask
 
 ```bash
 mcpify serve spec.json \

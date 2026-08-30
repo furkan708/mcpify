@@ -6,6 +6,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-08-30
+
+### Added — free what others charge for
+- **Auth auto-detection:** the spec's `security` declarations
+  (components, operation-level, and Swagger 2.0 `securityDefinitions`)
+  now configure `--auth-env` for you — `mcpify serve spec.json
+  --auth-env VAR` alone picks bearer, HTTP basic, header or query style
+  with the right name. Serving a secured spec without a credential
+  prints the exact flags to run; `doctor` shows them too.
+- **HTTP Basic auth:** `--auth-style basic` with the env variable
+  holding `username:password` produces the `Authorization: Basic …`
+  header (covers a whole class of internal APIs).
+- **`--wait-on-429 SEC`:** opt-in rate-limit courtesy — on 429 for an
+  idempotent call, honor `Retry-After` (or the retry delay) ONCE when
+  the wait is within the cap; longer waits return the 429 untouched;
+  POST/PATCH are never auto-waited.
+- **Self-hosting pack:** `deploy/docker-compose.yml` (mcpify + Caddy,
+  automatic HTTPS, double-layer bearer), `deploy/Caddyfile`,
+  `deploy/mcpify.service` (hardened systemd unit) and
+  `docs/SELF-HOSTING.md` — a free alternative to hosted-MCP plans that
+  bill $9–$229/month.
+
+### Tests
+- 263 → **294 passing** (eighteen suites): auth detection & Basic (22),
+  Retry-After handling (9).
+
 ## [1.7.0] - 2026-08-30
 
 ### Added — server selection (#13)

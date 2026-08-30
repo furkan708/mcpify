@@ -30,7 +30,7 @@ KNOWN_KEYS = frozenset({
     "lazy", "enable-preview", "cache-ttl", "retry", "retry-delay",
     "strict", "format", "verbose", "log-file", "default-env",
     "oauth2-token-url", "oauth2-client-id-env", "oauth2-client-secret-env",
-    "oauth2-scope", "oauth2-client-auth", "http", "http-token",
+    "oauth2-scope", "oauth2-client-auth", "http", "http-token", "wait-on-429",
 })
 
 _ENV_KEYS = KNOWN_KEYS - {"default-env"}
@@ -220,10 +220,12 @@ def apply_to_namespace(settings: dict[str, Any], args: Any) -> list[str]:
         "base-url": "base_url", "auth-env": "auth_env", "auth-style": "auth_style",
         "auth-name": "auth_name", "read-only": "read_only", "enable-preview": "enable_preview",
         "cache-ttl": "cache_ttl", "retry-delay": "retry_delay", "log-file": "log_file",
+        "wait-on-429": "wait_on_429",
     }
     choice_defaults = {
-        "auth_style": "bearer", "oauth2_client_auth": "basic",
-        "name": "mcpify", "format": "auto",
+        # --auth-style's default is now None (spec auto-detection), which the
+        # `current is None` branch already treats as unset
+        "oauth2_client_auth": "basic", "name": "mcpify", "format": "auto",
     }
     for key, value in settings.items():
         if key.startswith("_"):
@@ -231,7 +233,7 @@ def apply_to_namespace(settings: dict[str, Any], args: Any) -> list[str]:
         attr = mapping.get(key, key.replace("-", "_"))
         current = getattr(args, attr, None)
         is_default = current is None or current is False or (
-            attr in ("timeout", "cache_ttl", "retry_delay") and current == 0
+            attr in ("timeout", "cache_ttl", "retry_delay", "wait_on_429") and current == 0
         ) or (attr == "timeout" and current == 30.0) or (
             attr in choice_defaults and current == choice_defaults[attr]
         )
@@ -273,7 +275,7 @@ def build_config_document(settings: dict) -> str:
     order = [
         "spec", "base-url", "server", "name", "auth-env", "auth-style", "auth-name",
         "oauth2-token-url", "oauth2-client-id-env", "oauth2-client-secret-env",
-        "oauth2-scope", "oauth2-client-auth", "http",
+        "oauth2-scope", "oauth2-client-auth", "http", "wait-on-429",
         "read-only", "timeout", "cache-ttl", "retry", "retry-delay",
         "strict", "lazy", "enable-preview", "format", "log-file",
         "tag", "include", "exclude", "allow", "deny", "verbose",
