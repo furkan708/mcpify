@@ -86,7 +86,7 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
   non-idempotent retries belong at the gateway (rationale in USAGE.md)
 
 ## 10. Test & validation
-- ✅ **162 passing tests across eleven suites** (163 collected; one
+- ✅ **246 passing tests across sixteen suites** (247 collected; one
   live-integration test auto-skips offline) — full matrix in the README
 - ✅ Quality gates on every push: ruff, mypy `strict`, CodeQL,
   Python 3.10–3.12 × Linux + Windows
@@ -96,9 +96,15 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
   (69 tools, 16 enum'd parameters) — the scenario that found our
   crash-class bug
 - ✅ Regression policy: every field bug becomes a pinned test before the
-  fix ships
-- ✅ Multi-client by protocol: standard stdio MCP, verified with a real
-  JSON-RPC handshake in tests (Claude Desktop/Code, Cursor compatible)
+  fix ships (latest: the `.dockerignore`/Dockerfile conflict and the
+  Windows `\U` docstring escape, both found at release time in v1.6.x)
+- ✅ Multi-client by protocol: stdio **and** Streamable HTTP transports,
+  each verified with real JSON-RPC handshakes in tests (Claude
+  Desktop/Code, Cursor compatible; HTTP suites cover the 401/405/411/413/415
+  error ladder and bearer enforcement)
+- ✅ OAuth2 client-credentials exercised end-to-end against real local
+  token/API servers: fetch, cache, expiry (fake clock), public clients,
+  every failure mode, and the one-shot 401 self-heal
 
 ---
-*Audited 2026-08-29 against v1.3.0. Re-run on every release.*
+*Audited 2026-08-30 against v1.6.2. Re-run on every release.*
