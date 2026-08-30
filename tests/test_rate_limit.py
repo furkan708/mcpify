@@ -219,7 +219,7 @@ def test_cli_flag_wiring(tmp_path, monkeypatch):
     calls = {}
     captured_kwargs = {}
 
-    def fake_serve_http(server, host, port, token=None, max_body=None):
+    def fake_serve_http(server, host, port, token=None, max_body=None, **kwargs):
         calls["server"] = server
         captured_kwargs["wait"] = server.wait_on_429
 

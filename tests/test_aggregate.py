@@ -365,7 +365,7 @@ def test_direct_construction_still_works(api_a):
 def serve_recorder(monkeypatch):
     servers = []
 
-    def fake_serve_http(server, host, port, token=None, max_body=None):
+    def fake_serve_http(server, host, port, token=None, max_body=None, **kwargs):
         servers.append(server)
 
     import mcpify.http_transport as transport

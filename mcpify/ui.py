@@ -209,7 +209,7 @@ def _public_tool_rows(server: Any) -> list[dict[str, Any]]:
     return rows
 
 
-def build_state(server: Any, config_path: str | None, started: float) -> dict[str, Any]:
+def build_state(server: Any, config_path: str | Path | None, started: float) -> dict[str, Any]:
     """Everything the dashboard renders in one JSON document."""
     return {
         "server": {
@@ -230,7 +230,7 @@ def build_state(server: Any, config_path: str | None, started: float) -> dict[st
 def make_ui_handler(
     server: Any,
     token: str | None,
-    config_path: str | None,
+    config_path: str | Path | None,
     started: float,
 ) -> type[BaseHTTPRequestHandler]:
     """Bind a server object into the dashboard handler class."""
@@ -336,7 +336,7 @@ _CONFIG_FORM_KEYS = (
 )
 
 
-def write_config_from_form(form: dict[str, Any], config_path: str | None) -> str:
+def write_config_from_form(form: dict[str, Any], config_path: str | Path | None) -> str:
     """Validate the dashboard form and write .mcpify.toml through the
     same serializer `mcpify init` uses. Unknown keys are rejected, so a
     typo can never silently produce a dead config."""
@@ -364,9 +364,9 @@ def write_config_from_form(form: dict[str, Any], config_path: str | None) -> str
         else:
             settings[key] = str(value)
     document = build_config_document(settings)
-    target = config_path or ".mcpify.toml"
-    Path(target).write_text(document, encoding="utf-8")
-    return target
+    target = Path(config_path or ".mcpify.toml")
+    target.write_text(document, encoding="utf-8")
+    return str(target)
 
 
 def build_ui_server(
@@ -374,7 +374,7 @@ def build_ui_server(
     host: str,
     port: int,
     token: str | None,
-    config_path: str | None,
+    config_path: str | Path | None,
 ) -> tuple[HTTPServer, float]:
     """Bind the dashboard; returns (httpd, started-monotonic)."""
     _install_sink()
@@ -389,7 +389,7 @@ def serve_ui(
     host: str,
     port: int,
     token: str | None,
-    config_path: str | None,
+    config_path: str | Path | None,
     reload_cb: Callable[[], None] | None = None,
 ) -> None:
     """Run the dashboard until Ctrl+C. `reload_cb` runs on a background

@@ -34,7 +34,7 @@ import http.server
 import json
 import sys
 from socketserver import ThreadingMixIn
-from typing import Any
+from typing import Any, ClassVar
 
 from . import __version__
 from .http_client import _log
@@ -51,6 +51,7 @@ class _MCPHandler(http.server.BaseHTTPRequestHandler):
     mcp_server: Any = None  # set by make_handler
     bearer_token: str | None = None
     max_body: int = DEFAULT_MAX_BODY
+    token_scopes: ClassVar[dict[str, dict[str, Any]]] = {}  # bearer -> compiled scopes
 
     def log_message(self, fmt: str, *args: Any) -> None:
         _log("INFO", f"http: {self.address_string()} {fmt % args}")
@@ -82,13 +83,21 @@ class _MCPHandler(http.server.BaseHTTPRequestHandler):
             }
         self._send(status, payload, extra)
 
+    def _bearer_value(self) -> str:
+        header = self.headers.get("Authorization", "")
+        return header[7:] if header.startswith("Bearer ") else ""
+
     def _authorized(self) -> bool:
         token = type(self).bearer_token
-        if token is None:
+        scopes = type(self).token_scopes
+        if token is None and not scopes:
             return True
         header = self.headers.get("Authorization", "")
         scheme, _, value = header.partition(" ")
-        return scheme.lower() == "bearer" and hmac.compare_digest(value.strip(), token)
+        value = value.strip()
+        if scopes:
+            return scheme.lower() == "bearer" and value in scopes
+        return scheme.lower() == "bearer" and hmac.compare_digest(value, token or "")
 
     # -- methods -----------------------------------------------------------
     def do_POST(self) -> None:
@@ -130,6 +139,9 @@ class _MCPHandler(http.server.BaseHTTPRequestHandler):
         if response is None:
             self._send(202)  # notification: accepted, nothing to say
             return
+        scopes = type(self).token_scopes.get(self._bearer_value()) if type(self).token_scopes else None
+        if scopes:
+            response = _apply_scopes(response, decoded, scopes)
         self._send(200, response)
 
     def do_GET(self) -> None:
@@ -181,7 +193,75 @@ def _is_host(host: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9.-]*)", host))
 
 
-def make_handler(server: Any, token: str | None = None, max_body: int = DEFAULT_MAX_BODY) -> type:
+def _apply_scopes(response: dict[str, Any], request: dict[str, Any],
+                  scopes: dict[str, Any]) -> dict[str, Any]:
+    """Scope a tools/list result; gate tools/call on the target tool."""
+    method = request.get("method", "")
+    request_id = request.get("id")
+    if method == "tools/list":
+        result = response.get("result") or {}
+        tools = result.get("tools") or []
+        result["tools"] = [tool for tool in tools if tool_allowed(scopes, str(tool.get("name", "")))]
+        result["totalTools"] = len(result["tools"])
+        return {**response, "result": result}
+    if method == "tools/call":
+        name = str(((request.get("params") or {}).get("name")) or "")
+        if not tool_allowed(scopes, name):
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {
+                    "code": -32602,
+                    "message": f"tool '{name}' is not permitted for token '{scopes['name']}'",
+                },
+            }
+    return response
+
+
+def compile_token_scopes(
+    entries: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Validate + compile a token -> {allow, deny} regex map.
+
+    ``entries`` comes from the [tokens.NAME] tables of a token file:
+    {"token": str, "allow": [regex...], "deny": [regex...]}. At least
+    one allow pattern is required — a token with no allow list would be
+    either dead weight or (worse) accidentally unlimited."""
+    import re as _re
+
+    compiled: dict[str, dict[str, Any]] = {}
+    seen_tokens: dict[str, str] = {}
+    for name, entry in entries.items():
+        token = str(entry.get("token", ""))
+        if not token:
+            raise ValueError(f"tokens.{name}: missing 'token'")
+        if token in seen_tokens:
+            raise ValueError(f"tokens.{name}: duplicate token of {seen_tokens[token]}")
+        seen_tokens[token] = name
+        allow = entry.get("allow") or []
+        deny = entry.get("deny") or []
+        if not allow:
+            raise ValueError(
+                f"tokens.{name}: at least one 'allow' pattern is required "
+                "(a scope-less token is what --http-token is for)"
+            )
+        compiled[token] = {
+            "name": name,
+            "allow": [_re.compile(str(pattern)) for pattern in allow],
+            "deny": [_re.compile(str(pattern)) for pattern in deny],
+        }
+    return compiled
+
+
+def tool_allowed(scopes: dict[str, Any], tool_name: str) -> bool:
+    """Deny wins over allow (same rule as the path policy layer)."""
+    if any(pattern.search(tool_name) for pattern in scopes["deny"]):
+        return False
+    return any(pattern.search(tool_name) for pattern in scopes["allow"])
+
+
+def make_handler(server: Any, token: str | None = None, max_body: int = DEFAULT_MAX_BODY,
+                 token_scopes: dict[str, dict[str, Any]] | None = None) -> type:
     """Bind an ApiServer (and optional bearer token) into a handler class.
 
     A fresh class object per server instance keeps tests and multi-server
@@ -189,7 +269,8 @@ def make_handler(server: Any, token: str | None = None, max_body: int = DEFAULT_
     return type(
         "BoundMCPHandler",
         (_MCPHandler,),
-        {"mcp_server": server, "bearer_token": token, "max_body": max_body},
+        {"mcp_server": server, "bearer_token": token, "max_body": max_body,
+         "token_scopes": token_scopes or {}},
     )
 
 
@@ -199,18 +280,24 @@ class _ThreadingHTTPServer(ThreadingMixIn, http.server.HTTPServer):
 
 
 def build_http_server(server: Any, host: str, port: int, token: str | None = None,
-                      max_body: int = DEFAULT_MAX_BODY) -> _ThreadingHTTPServer:
+                      max_body: int = DEFAULT_MAX_BODY,
+                      token_scopes: dict[str, dict[str, Any]] | None = None) -> _ThreadingHTTPServer:
     """Construct (not start) the threaded HTTP server. Separated from
     serve_http so tests can bind port 0, read the real port, and drive
     requests while serve_http() remains the blocking production entry."""
-    handler = make_handler(server, token, max_body)
+    handler = make_handler(server, token, max_body, token_scopes)
     return _ThreadingHTTPServer((host, port), handler)
 
 
 def serve_http(server: Any, host: str, port: int, token: str | None = None,
-               max_body: int = DEFAULT_MAX_BODY) -> None:
+               max_body: int = DEFAULT_MAX_BODY,
+               token_scopes: dict[str, dict[str, Any]] | None = None) -> None:
     """Run the HTTP transport until Ctrl+C (the `--http` entry)."""
-    httpd = build_http_server(server, host, port, token, max_body)
+    if token_scopes and token is None:
+        # scoped tokens carry their own secrets; a shared --http-token would defeat them.
+        # sentinel: _authorized checks token_scopes membership, this value is never compared
+        token = "__mcpify_scoped__"  # noqa: S105 - sentinel, not a credential
+    httpd = build_http_server(server, host, port, token, max_body, token_scopes)
     bound_host = str(httpd.server_address[0])
     bound_port = int(httpd.server_address[1])
     if host not in ("127.0.0.1", "localhost") and token is None:

@@ -18,6 +18,7 @@ deployment, troubleshooting, and frequently asked questions.
 11. [Sharing a preconfigured server (`mcpify output-server`)](#11-sharing-a-preconfigured-server-mcpify-output-server)
 12. [Multi-API aggregation: one server, several APIs](#12-multi-api-aggregation-one-server-several-apis)
 13. [Dashboard, metrics, mock & hot reload](#13-dashboard-metrics-mock--hot-reload)
+14. [Governance & upgrades: diff, audit, RBAC, plugins, tracing](#14-governance--upgrades-diff-audit-rbac-plugins-tracing)
 
 ---
 
@@ -756,3 +757,89 @@ Exit code 0 when the API answered, 2 when unreachable. Inside a session,
 the `mcpify_health` tool (listed in every mode) returns the same report:
 `api_reachable`, `api_status`, latency, tool count, cache/retry settings,
 and whether the auth env variable is actually set.
+
+## 14. Governance & upgrades: diff, audit, RBAC, plugins, tracing
+
+### `mcpify diff` — upgrade a spec without breaking your agents
+
+```bash
+mcpify diff v1.yaml v2.yaml                # human report
+mcpify diff v1.yaml v2.yaml --json         # machine report (CI)
+mcpify diff v1.yaml v2.yaml --fail-on-breaking   # CI gate: exit 1 if breaking
+```
+
+Breaking means "a deployed agent can fail": an operation disappears, a
+required parameter appears, an optional one becomes required, or a request
+body becomes required. Deprecations and `operationId` renames are reported
+as warnings. The report ends with a migration guide written for the agent
+consumer ("pass `limit` when calling `GET /pets`").
+
+### `--audit-log` — who called what, when
+
+```bash
+mcpify serve spec.yaml --audit-log /var/log/mcpify/audit.jsonl
+```
+
+One JSON line per real API call: `ts`, `tool`, `api`, `status`,
+`outcome`, `latency_ms`, `arguments_fingerprint`. Arguments are hashed
+(sha256, first 12 hex chars), never written raw — the log correlates
+repeat calls without storing end-user content. An unwritable file warns
+once; serving never stops because auditing failed.
+
+### `--http-token-file` — per-token tool scopes
+
+```toml
+# tokens.toml
+[tokens.readonly]
+token = "tok-read-xyz"
+allow = ["^list_", "^get_"]
+
+[tokens.ops]
+token = "tok-ops-xyz"
+allow = [".*"]
+deny  = ["^delete_"]
+```
+
+```bash
+mcpify serve spec.yaml --http 8080 --http-token-file tokens.toml
+```
+
+Each caller authenticates with their own bearer; their `tools/list` shows
+only what their scopes allow and scoped-out calls are refused with a clear
+error. Deny wins; at least one `allow` is required (a scope-less token is
+what plain `--http-token` is for). This is name-based access control, not
+identity/SSO — `docs/SELF-HOSTING.md` is explicit about the difference.
+
+### `--plugin` — your Python, mcpify's serving loop
+
+```python
+# plug.py
+AUTH = MyRotatingAuthProvider()      # replaces the spec-derived credential logic
+
+def on_request(request):             # see every upstream request
+    request["headers"]["X-Org"] = "acme"
+    return request
+
+def on_result(result):               # see every raw result (pre-formatting)
+    return result
+```
+
+```bash
+mcpify serve spec.yaml --plugin plug.py --plugin other.py
+```
+
+Hooks run best-effort: a raising hook is suppressed, the request still
+goes through. `AUTH`, when present, overrides `--auth-env`-style
+configuration (a note is printed when it does).
+
+### `--otel` — one span per upstream call
+
+```bash
+pip install 'mcpify[otel]'
+mcpify serve spec.yaml --otel http://localhost:4318/v1/traces
+```
+
+Each upstream API call produces a span carrying `mcpify.tool`,
+`mcpify.api`, `mcpify.ok`, `mcpify.status_detail` and
+`mcpify.latency_ms`. Without the extra installed, `--otel` fails with the
+exact install command; numeric metrics stay in Prometheus `--metrics`.

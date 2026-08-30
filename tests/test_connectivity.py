@@ -32,7 +32,7 @@ def lines(*items):
 def serve_http_recorder(monkeypatch):
     calls = []
 
-    def fake_serve_http(server, host, port, token=None, max_body=None):
+    def fake_serve_http(server, host, port, token=None, max_body=None, **kwargs):
         calls.append({"host": host, "port": port, "token": token})
 
     import mcpify.http_transport as transport

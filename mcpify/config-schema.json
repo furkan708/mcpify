@@ -1,0 +1,411 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "mcpify configuration",
+  "description": "Schema for .mcpify.toml. Editor wiring: point jsonlib/yaml-language-server at this file. Print it with: mcpify config-schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "serve": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "spec": {
+          "type": "string"
+        },
+        "base-url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "server": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer",
+              "minimum": 1
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "auth-env": {
+          "type": "string"
+        },
+        "auth-name": {
+          "type": "string"
+        },
+        "auth-style": {
+          "enum": [
+            "bearer",
+            "basic",
+            "header",
+            "query"
+          ]
+        },
+        "timeout": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "tag": {
+          "type": "string"
+        },
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "read-only": {
+          "type": "boolean"
+        },
+        "allow": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deny": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "lazy": {
+          "type": "boolean"
+        },
+        "enable-preview": {
+          "type": "boolean"
+        },
+        "cache-ttl": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "retry": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retry-delay": {
+          "type": "number",
+          "minimum": 0
+        },
+        "strict": {
+          "type": "boolean"
+        },
+        "format": {
+          "enum": [
+            "auto",
+            "json",
+            "xml"
+          ]
+        },
+        "verbose": {
+          "type": "boolean"
+        },
+        "log-file": {
+          "type": "string"
+        },
+        "default-env": {
+          "type": "string"
+        },
+        "oauth2-token-url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "oauth2-client-id-env": {
+          "type": "string"
+        },
+        "oauth2-client-secret-env": {
+          "type": "string"
+        },
+        "oauth2-scope": {
+          "type": "string"
+        },
+        "oauth2-client-auth": {
+          "enum": [
+            "basic",
+            "body"
+          ]
+        },
+        "http": {
+          "type": "string"
+        },
+        "http-token": {
+          "type": "string"
+        },
+        "wait-on-429": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "envs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "spec": {
+            "type": "string"
+          },
+          "base-url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "server": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": 1
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "auth-env": {
+            "type": "string"
+          },
+          "auth-name": {
+            "type": "string"
+          },
+          "auth-style": {
+            "enum": [
+              "bearer",
+              "basic",
+              "header",
+              "query"
+            ]
+          },
+          "timeout": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "tag": {
+            "type": "string"
+          },
+          "include": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exclude": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "read-only": {
+            "type": "boolean"
+          },
+          "allow": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "deny": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "lazy": {
+            "type": "boolean"
+          },
+          "enable-preview": {
+            "type": "boolean"
+          },
+          "cache-ttl": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "retry": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "retry-delay": {
+            "type": "number",
+            "minimum": 0
+          },
+          "strict": {
+            "type": "boolean"
+          },
+          "format": {
+            "enum": [
+              "auto",
+              "json",
+              "xml"
+            ]
+          },
+          "verbose": {
+            "type": "boolean"
+          },
+          "log-file": {
+            "type": "string"
+          },
+          "oauth2-token-url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "oauth2-client-id-env": {
+            "type": "string"
+          },
+          "oauth2-client-secret-env": {
+            "type": "string"
+          },
+          "oauth2-scope": {
+            "type": "string"
+          },
+          "oauth2-client-auth": {
+            "enum": [
+              "basic",
+              "body"
+            ]
+          },
+          "http": {
+            "type": "string"
+          },
+          "http-token": {
+            "type": "string"
+          },
+          "wait-on-429": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "apis": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "spec": {
+            "type": "string"
+          },
+          "base-url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "server": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer",
+                "minimum": 1
+              }
+            ]
+          },
+          "auth-env": {
+            "type": "string"
+          },
+          "auth-name": {
+            "type": "string"
+          },
+          "auth-style": {
+            "enum": [
+              "bearer",
+              "basic",
+              "header",
+              "query"
+            ]
+          },
+          "timeout": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "tag": {
+            "type": "string"
+          },
+          "include": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exclude": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "read-only": {
+            "type": "boolean"
+          },
+          "allow": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "deny": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cache-ttl": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "retry": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "retry-delay": {
+            "type": "number",
+            "minimum": 0
+          },
+          "strict": {
+            "type": "boolean"
+          },
+          "format": {
+            "enum": [
+              "auto",
+              "json",
+              "xml"
+            ]
+          },
+          "oauth2-token-url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "oauth2-client-id-env": {
+            "type": "string"
+          },
+          "oauth2-client-secret-env": {
+            "type": "string"
+          },
+          "oauth2-scope": {
+            "type": "string"
+          },
+          "oauth2-client-auth": {
+            "enum": [
+              "basic",
+              "body"
+            ]
+          },
+          "wait-on-429": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

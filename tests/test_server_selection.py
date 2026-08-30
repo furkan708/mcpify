@@ -137,7 +137,7 @@ def test_string_server_entries_are_supported(tmp_path):
 def serve_http_recorder(monkeypatch):
     calls = []
 
-    def fake_serve_http(server, host, port, token=None, max_body=None):
+    def fake_serve_http(server, host, port, token=None, max_body=None, **kwargs):
         calls.append({"base": server.base_url, "host": host, "port": port})
 
     import mcpify.http_transport as transport

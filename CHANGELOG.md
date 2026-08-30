@@ -6,6 +6,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-08-30
+
+### Added — the operator & governance release (core stays zero-dependency)
+- **`mcpify diff OLD NEW` — spec upgrades from the tool-surface view:**
+  added/removed/changed operations with a per-change **breaking** verdict
+  (operation removed, required parameter added or became required, request
+  body became required). Deprecations and `operationId` renames are
+  surfaced as non-breaking warnings. `migration guide` lines tell agent
+  consumers exactly what to change; `--json` for machines and
+  `--fail-on-breaking` as a CI gate. Exit contract: 0 clean, 1 breaking,
+  2 usage error.
+- **Audit trail (`--audit-log FILE`):** one JSON line per real API call —
+  timestamp, tool, API label, HTTP status, ok/error outcome, latency and a
+  12-hex **argument fingerprint** (sha256 of the sorted arguments — repeat
+  calls correlate without storing end-user content). Fail-safe: an
+  unwritable file warns once and never takes the serving path down.
+- **Per-token tool RBAC (`--http-token-file FILE`):** a TOML file of
+  `[tokens.NAME]` sections, each with its own bearer token plus `allow` /
+  `deny` regex lists over tool names (deny wins; at least one `allow`
+  required; duplicate tokens rejected). `tools/list` is filtered per
+  caller and scoped-out `tools/call` requests are refused with a clear
+  error. This is deliberately coarse, name-based access control — not
+  SSO/identity (SELF-HOSTING.md says so).
+- **ETag-aware caching:** stored responses keep their `ETag`; on expiry a
+  conditional `If-None-Match` revalidation gets a `304` and serves the
+  stored body (counted as a cache hit). New `mcpify_cache_invalidate`
+  meta tool clears everything or a path pattern; `--cache-warm` pre-calls
+  argument-free GET tools in background threads right after startup.
+- **Plugin hooks (`--plugin FILE`, repeatable):** load a Python module
+  that provides an `AUTH` object (replaces the spec-derived credential
+  logic) and/or `on_request` / `on_result` hooks that see every upstream
+  request and raw result (add headers, redact, ship events). A broken
+  hook never breaks a request.
+- **`.mcpify.toml` JSON Schema (`mcpify config-schema`):** the shipped,
+  tested schema mirrors the exact accepted keys for `[serve]`, `[envs.*]`
+  and `[apis.*]` — wire it into your editor.
+- **External `$ref` bundling:** `$ref` targets in other files or URLs are
+  inlined at load (nested refs resolve relative to their own file;
+  component-only target files accepted). Cycles and unreadable targets
+  are skipped, never fatal.
+- **OpenTelemetry tracing (`--otel [ENDPOINT]`, optional extra):** one
+  span per upstream API call (tool, api, status, latency) exported over
+  OTLP/HTTP. Requires `pip install 'mcpify[otel]'`; without it you get an
+  actionable error, and the core still has zero dependencies.
+- **`mcpify ui` actually serves now:** v1.10.0 shipped the dashboard but
+  the CLI dispatch branch was missing — `mcpify ui` parsed arguments and
+  silently exited. Fixed and pinned by regression tests.
+- 37 new tests (389 total, twenty-four suites).
+
 ## [1.10.0] - 2026-08-30
 
 ### Added — the operations release (all zero-dependency)

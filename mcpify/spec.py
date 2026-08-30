@@ -19,11 +19,10 @@ class SpecError(ValueError):
     """Raised when an OpenAPI document cannot be loaded or is invalid."""
 
 
-def load_spec(source: str) -> dict[str, Any]:
-    """Load an OpenAPI document from a file path or an http(s) URL.
-
-    JSON is always supported; YAML requires PyYAML.
-    """
+def _load_document(source: str) -> dict[str, Any]:
+    """Fetch + parse a YAML/JSON document without OpenAPI validation.
+    Used by load_spec and by external-$ref resolution (ref targets are
+    often component-only files that are not valid OpenAPI on their own)."""
     text: str
     if source.startswith(("http://", "https://")):
         try:
@@ -55,13 +54,109 @@ def load_spec(source: str) -> dict[str, Any]:
 
     if not isinstance(data, dict):
         raise SpecError("specification root must be an object")
+    return data
+
+
+def load_spec(source: str) -> dict[str, Any]:
+    """Load an OpenAPI document from a file path or an http(s) URL.
+
+    JSON is always supported; YAML requires PyYAML. External ``$ref``
+    targets (files/URLs) are inlined so the surface can be built from
+    one merged document.
+    """
+    data = _load_document(source)
     if "openapi" not in data and "swagger" not in data:
         raise SpecError(
             "not an OpenAPI document (missing 'openapi' or 'swagger' version field)"
         )
     if not isinstance(data.get("paths"), dict):
         raise SpecError("specification has no 'paths' object")
+    _bundle_external_refs(data, source)
     return data
+
+
+_MAX_REF_DEPTH = 10
+
+
+def _bundle_external_refs(document: dict[str, Any], source: str) -> None:
+    """Inline external $ref targets (``other.yaml#/components/...`` or a URL)
+    into the document so the rest of mcpify can treat the spec as one file.
+
+    Same-document refs (``#/components/...``) are left alone — resolve_ref
+    already handles them. Cycles and refs beyond _MAX_REF_DEPTH are left in
+    place (documented limit: fully circular multi-file specs are not
+    unwound; the tool surface simply skips what it cannot resolve).
+    """
+    base = _base_for(source)
+    seen: set[tuple[str, str]] = set()
+    _walk_and_bundle(document, base, seen, depth=0)
+
+
+def _base_for(source: str) -> str:
+    if source.startswith(("http://", "https://")):
+        return source.rsplit("/", 1)[0] + "/"
+    return str(Path(source).resolve().parent) + "/"
+
+
+def _walk_and_bundle(node: Any, base: str, seen: set[tuple[str, str]], depth: int) -> None:
+    """`depth` counts REF HOPS (not document levels) so deep documents
+    keep full ref budget. `seen` is the current chain's resolved targets:
+    each branch gets its own copy, so DAG-shaped specs (many refs into
+    one components file) resolve everywhere while true cycles stop."""
+    if depth > _MAX_REF_DEPTH or isinstance(node, (str, bytes, int, float, bool)) or node is None:
+        return
+    if isinstance(node, dict):
+        ref = node.get("$ref")
+        if isinstance(ref, str) and not ref.startswith("#"):
+            resolved = _resolve_external_ref(ref, base, seen, depth)
+            if resolved is not None:
+                # replace the $ref node's CONTENTS in place (keeps dict identity)
+                node.clear()
+                node.update(resolved)
+                return  # bundled subtree already walked by the resolver
+        for value in node.values():
+            _walk_and_bundle(value, base, set(seen), depth)
+    elif isinstance(node, list):
+        for item in node:
+            _walk_and_bundle(item, base, set(seen), depth)
+
+
+def _resolve_external_ref(
+    ref: str, base: str, seen: set[tuple[str, str]], depth: int
+) -> dict[str, Any] | None:
+    """Fetch + parse an external ref target. Returns the resolved subtree
+    (already re-walked for nested external refs) or None when it must be
+    skipped (cycle, depth, unreadable target — skip, never crash the load)."""
+    if "#/" in ref:
+        file_part, fragment = ref.split("#/", 1)
+    else:
+        file_part, fragment = ref, ""
+    key = (file_part, fragment)
+    if key in seen or depth >= _MAX_REF_DEPTH:
+        return None
+    seen.add(key)
+    location = file_part if file_part.startswith(("http://", "https://")) else base + file_part
+    try:
+        target = _load_document(location)
+    except SpecError:
+        return None
+    if fragment:
+        current: Any = target
+        for part in fragment.split("/"):
+            part = part.replace("~1", "/").replace("~0", "~")
+            if not isinstance(current, dict) or part not in current:
+                return None
+            current = current[part]
+        if not isinstance(current, dict):
+            return None
+        subtree = current
+    else:
+        subtree = target
+    # nested external refs inside the fetched file resolve relative to THAT
+    # file; the chain (including this hop) carries forward for cycle breaks
+    nested_base = _base_for(location)
+    _walk_and_bundle(subtree, nested_base, seen, depth + 1)
+    return subtree
 
 
 def resolve_ref(spec: dict[str, Any], ref: str) -> Any:

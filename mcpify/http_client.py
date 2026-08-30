@@ -84,7 +84,12 @@ MAX_CACHE_ENTRIES = 256
 
 
 class ResponseCache:
-    """Tiny TTL cache for GET+200 results. Thread-safe, bounded."""
+    """Tiny TTL cache for GET+200 results. Thread-safe, bounded.
+
+    Entries keep their ``ETag`` when the API sent one, so an expired
+    entry can be revalidated with ``If-None-Match`` instead of a full
+    re-download (304 -> the stored body is served and its TTL reset).
+    """
 
     def __init__(self, ttl: float) -> None:
         self.ttl = ttl
@@ -102,12 +107,48 @@ class ResponseCache:
                 del self._store[key]
         return None
 
-    def put(self, key: str, result: dict[str, Any]) -> None:
+    def get_stale(self, key: str) -> dict[str, Any] | None:
+        """Return a possibly-expired entry (kept for ETag revalidation)."""
+        with self._lock:
+            entry = self._store.get(key)
+            return dict(entry) if entry else None
+
+    def revalidate(self, key: str) -> None:
+        """304 arrived: keep the stored body, reset its TTL clock."""
+        with self._lock:
+            entry = self._store.get(key)
+            if entry:
+                entry["expires"] = time.monotonic() + self.ttl
+
+    def put(self, key: str, result: dict[str, Any], etag: str | None = None) -> None:
         with self._lock:
             if len(self._store) >= MAX_CACHE_ENTRIES:
                 oldest = min(self._store, key=lambda k: self._store[k]["expires"])
                 del self._store[oldest]
-            self._store[key] = {"expires": time.monotonic() + self.ttl, "result": result}
+            self._store[key] = {
+                "expires": time.monotonic() + self.ttl,
+                "result": result,
+                "etag": etag,
+            }
+
+    def invalidate(self, pattern: str | None = None) -> int:
+        """Drop entries whose key contains ``pattern`` (all when None).
+        Returns how many entries were removed."""
+        with self._lock:
+            if pattern is None:
+                removed = len(self._store)
+                self._store.clear()
+                return removed
+            doomed = [key for key in self._store if pattern in key]
+            for key in doomed:
+                del self._store[key]
+            return len(doomed)
+
+    def size(self) -> int:
+        """Entry count. Deliberately NOT __len__: an empty cache must
+        stay truthy (`if cache:` guards would silently disable it)."""
+        with self._lock:
+            return len(self._store)
 
 
 def _retry_after_seconds(result: dict[str, Any], fallback: float) -> float | None:
@@ -172,20 +213,39 @@ def execute(
         return result
 
 
+def _header_value(headers: dict[str, str], name: str) -> str | None:
+    """Case-insensitive header lookup (servers differ on casing)."""
+    lowered = name.lower()
+    for key, value in headers.items():
+        if key.lower() == lowered:
+            return value
+    return None
+
+
 def _execute_once(request: dict[str, Any], timeout: float, cache: ResponseCache | None = None) -> dict[str, Any]:
     cache_key = request.get("method", "GET").upper() + " " + request["url"]
-    if cache is not None and request.get("method", "GET").upper() == "GET":
+    is_get = request.get("method", "GET").upper() == "GET"
+    revalidate_entry: dict[str, Any] | None = None
+    if cache is not None and is_get:
         hit = cache.get(cache_key)
+        if hit is None:
+            # expired-but-present with an ETag -> conditional revalidation
+            stale = cache.get_stale(cache_key)
+            if stale and stale.get("etag"):
+                revalidate_entry = stale
         metrics.inc("mcpify_cache_requests_total", {"result": "hit" if hit is not None else "miss"})
         if hit is not None:
             _log("INFO", f"cache hit {request['url'].split('?', 1)[0]}")
             return hit
     data = request.get("body")
     url_guvenli = request["url"].split("?", 1)[0]
+    send_headers = dict(request["headers"])
+    if revalidate_entry:
+        send_headers["If-None-Match"] = str(revalidate_entry["etag"])
     req = urllib.request.Request(  # noqa: S310 — URL operatorun spec'inden
         request["url"],
         data=data,
-        headers=request["headers"],
+        headers=send_headers,
         method=request["method"],
     )
     basla = time.monotonic()
@@ -222,8 +282,14 @@ def _execute_once(request: dict[str, Any], timeout: float, cache: ResponseCache 
         excerpt = raw[:1000]
         _log("INFO", f"response {status} from {url_guvenli} ({len(raw)} bytes): {excerpt}")
     result = {"status": status, "body": raw, "json": parsed, "headers": headers}
-    if cache is not None and request.get("method", "GET").upper() == "GET" and status == 200:
-        cache.put(cache_key, result)
+    if cache is not None and is_get:
+        if status == 304 and revalidate_entry is not None:
+            cache.revalidate(cache_key)
+            metrics.inc("mcpify_cache_requests_total", {"result": "hit"})
+            _log("INFO", f"cache revalidated (304) {url_guvenli}")
+            return dict(revalidate_entry["result"])
+        if status == 200:
+            cache.put(cache_key, result, _header_value(headers, "ETag"))
     return result
 
 

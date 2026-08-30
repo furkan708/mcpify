@@ -72,16 +72,21 @@ here — there is no per-request meter on top.
 ## Hardening checklist
 
 - [ ] `--http-token` set (or an authenticating reverse proxy) — never expose unauthenticated
+- [ ] Per-token tool scopes for fleets: `--http-token-file tokens.toml` gives each bearer its own `allow`/`deny` regex list (deny wins; at least one `allow` required). This is coarse path-based RBAC on tool names — not identity/SSO, and scopes are plain regexes you maintain
 - [ ] Scope the surface: `--read-only`, `--tag`, `--include/--exclude`, `--deny`
 - [ ] Credentials only via environment (`--auth-env` / `--oauth2-*-env`), never flags or config values
 - [ ] `--timeout` low enough that a slow upstream can't pin the worker
-- [ ] `--log-file` on a volume if you need an audit trail (credentials are masked)
+- [ ] Trail of every API call: `--audit-log /var/log/mcpify/audit.jsonl` — one JSON line with tool, API label, status, latency and an argument *fingerprint* (arguments are never written raw)
+- [ ] Optional request traces: `--otel` exports one span per upstream call to your OTLP collector (`pip install 'mcpify[otel]'` first)
 - [ ] Upgrade is `docker compose pull && docker compose up -d` — the spec is re-read at start, tools are always current (no "publish/rollback" pipeline needed)
 
 ## When you *should* pay for a platform
 
 Honest limits of self-hosting: you own availability, TLS renewal
-monitoring, and incident response. If you need SSO/SCIM, per-agent RBAC,
-PII blocking, SOC 2 attestations, or multi-tenant metering, managed
+monitoring, and incident response. mcpify now covers **coarse per-token
+tool RBAC** (`--http-token-file`) and an append-only audit trail
+(`--audit-log`) — but it has no SSO/SCIM, no identity provider
+integration (a token file is still just tokens), no PII blocking, no SOC
+2 attestations, and no multi-tenant metering. If you need those, managed
 gateways sell exactly that — and mcpify deliberately does not pretend to
 be it (see `docs/ARCHITECTURE.md` → Scope statement).

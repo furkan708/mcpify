@@ -85,9 +85,10 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 
 - **Odaklı ve üretim hazırı:** Tek iş (OpenAPI → MCP), tek arayüz (stdio
   üzerinde tek komut), sıfır runtime bağımlılığı. Odaklılık küçüklük demek değil:
-  21 pakette 352 test, iki transport (stdio + HTTP), çift MCP-spec uyumu, OAuth2,
-  çok-API aggregation, politika katmanı, cache, güvenli retry ve health sorgusu
-  bu tek işi destekliyor.
+  24 pakette 389 test, iki transport (stdio + HTTP), çift MCP-spec uyumu, OAuth2,
+  çok-API aggregation, politika katmanı, ETag-farkında cache, güvenli retry, health
+  sorgusu, audit kaydı, token-bazlı tool RBAC'ı ve plugin hook'ları bu tek işi
+  destekliyor.
 - **Token bütçesi:** Her araç tanımı modelin bağlam penceresini (context) tüketir.
   mcpify'ın filtreleriyle yalnızca ilgili uçları açarsınız; CLI tabanlı yaklaşımlardan
   belirgin biçimde daha az token harcarsınız.
@@ -107,7 +108,7 @@ Tam liste: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
 ## Test ve kalite
 
-**352 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
+**389 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
 yükleyen canlı entegrasyon testidir (çevrimdışında otomatik atlanır).
 Tüm paketler Python 3.10–3.12 üzerinde Linux ve Windows'ta koşar; her
 push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
@@ -133,6 +134,9 @@ push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
 | Operasyon: dashboard, metrics, mock, reload | 25 | `/metrics` text formatı (sayaç/histogram/cache hit-miss/health gauge), token'lı UI rotaları, maskeli önizleme API'si, config-form yazıcısı (+bilinmeyen anahtar 400), şema-şeklinde mock yanıtları ve şablon yönlendirme, hot-reload (bozuk spec'te eski yüzey ayakta) |
 | `output-server` | 11 | gömülü spec bütünlüğü, koruma rayları, sır uyarıları ve gerçek subprocess E2E el sıkışması |
 | CLI bağlantı yapıştırıcısı | 10 | `--http` kablolaması, `MCPIFY_HTTP_TOKEN` yedeği, OAuth2 bayrak kuralları, config anahtarları, sihirbaz 5. seçenek, `try` duman testi |
+| Spec diff (`mcpify diff`) | 14 | eklenen/kaldırılan/değişen op'lar, breaking kararları (zorunlu param eklendi/zorunlu oldu, gövde zorunlu oldu, op kaldırma), deprecated & operationId uyarıları, migration rehberi, doküman-seviyesi diff, CLI çıkış sözleşmesi 0/1/2, `--json` |
+| v1.11 servis: audit, cache, RBAC, plugin | 17 | argüman parmak izli JSONL audit kaydı + bozuk dosyada fail-safe, bayat girdide ETag 304 doğrulaması, `mcpify_cache_invalidate` (kapsamlı + tam), `--cache-warm` yalnız argümansız GET'leri ısıtır, token dosyası uçtan uca (401 / filtreli liste / reddedilen çağrı, deny kazanır), gerçek isteklerde plugin hook'ları, `mcpify ui` dispatch (ölü komut regresyonu), `config-schema` config modülüyle birebir, OTel koruması |
+| Harici `$ref` paketleme | 6 | dosya + URL-bazlı hedefler içe alınır, yalnız-components hedef dosyaları, iç içe ref'ler kendi dosyasına göre çözülür, olmayan hedef atlanır, döngüsel ref'ler ayakta kalır, aynı-doküman ref'lere dokunulmaz |
 
 İlke: sahada bulunan her hata, düzeltme gönderilmeden önce regresyon
 testine çevrilir — paket yalnızca büyür.

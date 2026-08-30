@@ -213,6 +213,153 @@ def _add_serve_options(p: argparse.ArgumentParser, with_http: bool) -> None:
         p.add_argument("--reload", action="store_true",
                        help="watch the spec file(s) and hot-reload the tool surface on change "
                        "(local paths only; broken specs keep the previous surface)")
+        p.add_argument("--http-token-file", metavar="FILE", default=None,
+                       help="TOML file mapping named bearer tokens to tool scopes "
+                       "([tokens.NAME] token=... allow=[...] deny=[...]); deny wins")
+        p.add_argument("--plugin", action="append", metavar="PATH", default=None,
+                       help="load a Python plugin module (auth provider via AUTH, "
+                       "request/response hooks via on_request/on_result); repeatable")
+
+    p.add_argument("--audit-log", metavar="FILE", default=None,
+                   help="append one JSON line per API call (tool, api, status, latency, "
+                   "argument fingerprint) — arguments are never written raw")
+    p.add_argument("--cache-warm", action="store_true",
+                   help="with --cache-ttl: pre-call every GET tool that needs no arguments "
+                   "right after startup (background threads)")
+    p.add_argument("--otel", nargs="?", const="http://localhost:4318/v1/traces", default=None,
+                   metavar="ENDPOINT",
+                   help="export one OpenTelemetry span per upstream API call via OTLP/HTTP "
+                   "(default endpoint: http://localhost:4318/v1/traces) — needs the optional "
+                   "extra: pip install 'mcpify[otel]'")
+
+
+def _load_plugins(paths: list[str]) -> list[Any]:
+    """Load --plugin modules by path. Returns module objects; the
+    convention is optional module-level `AUTH`, `on_request`, `on_result`."""
+    import importlib.util
+
+    modules: list[Any] = []
+    for path in paths:
+        if not os.path.isfile(path):
+            _fail(f"plugin not found: {path}")
+        spec = importlib.util.spec_from_file_location(f"mcpify_plugin_{len(modules)}_{os.path.basename(path)}", path)
+        if spec is None or spec.loader is None:
+            _fail(f"plugin cannot be loaded: {path}")
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except Exception as err:
+            _fail(f"plugin {path} failed to load: {err}")
+        modules.append(module)
+        print(f"mcpify: plugin loaded: {path}", file=sys.stderr, flush=True)
+    return modules
+
+
+def _read_token_file(path: str) -> dict[str, dict[str, Any]]:
+    """Parse --http-token-file: [tokens.NAME] tables -> compiled scopes."""
+    from .config import _load_toml
+    from .http_transport import compile_token_scopes
+
+    if not os.path.isfile(path):
+        _fail(f"token file not found: {path}")
+    try:
+        data = _load_toml(Path(path))
+    except ValueError as err:
+        _fail(f"token file {path}: {err}")
+    tokens = data.get("tokens") or {}
+    if not isinstance(tokens, dict) or not tokens:
+        _fail(f"token file {path}: expected at least one [tokens.NAME] table")
+    try:
+        return compile_token_scopes(tokens)
+    except ValueError as err:
+        _fail(f"token file {path}: {err}")
+
+
+def _start_cache_warm(server: Any) -> threading.Thread | None:
+    """--cache-warm: pre-call GET tools that need no arguments.
+
+    Only meaningful with --cache-ttl (an in-memory cache): the calls run
+    in background threads right after startup so first agent hits are
+    served warm. Tools with required parameters are skipped — filling
+    them would mean guessing values, which is the agent's job.
+    """
+    if server.cache is None:
+        print("note: --cache-warm has no effect without --cache-ttl", file=sys.stderr)
+        return None
+    warmable = [
+        tool for tool in server.tools
+        if tool["_meta"]["method"] == "GET" and not tool["inputSchema"].get("required")
+    ]
+    if not warmable:
+        print("mcpify warm: no argument-free GET tools to warm", file=sys.stderr)
+        return None
+
+    def run_one(tool: dict[str, Any]) -> str | None:
+        try:
+            server.run_tool(tool["name"], {})
+            return None
+        except Exception as err:  # warm asla serve'i bozmaz
+            return f"mcpify warm: {tool['name']} skipped ({err})"
+
+    def warm() -> None:
+        notes = [note for note in (run_one(tool) for tool in warmable) if note]
+        for note in notes:
+            print(note, file=sys.stderr, flush=True)
+        print(f"mcpify warm: {len(warmable) - len(notes)}/{len(warmable)} tools pre-called",
+              file=sys.stderr, flush=True)
+
+    thread = threading.Thread(target=warm, daemon=True)
+    thread.start()
+    print(f"mcpify warm: pre-calling {len(warmable)} tools in background", file=sys.stderr, flush=True)
+    return thread
+
+
+def _wire_serve_extras(args: argparse.Namespace, server: Any) -> None:
+    """Common serve/ui extras: audit log, tracing, plugins, cache warming."""
+    from . import audit
+
+    otel_endpoint = getattr(args, "otel", None)
+    if otel_endpoint:
+        from .otel import OtelError, enable_otel
+
+        try:
+            durum = enable_otel(str(otel_endpoint),
+                                service_name=str(getattr(args, "name", None) or "mcpify"))
+        except OtelError as err:
+            _fail(str(err))
+        print(f"mcpify: {durum}", file=sys.stderr, flush=True)
+    if getattr(args, "audit_log", None):
+        audit.enable(args.audit_log)
+        print(f"mcpify: audit log -> {args.audit_log}", file=sys.stderr, flush=True)
+    plugin_paths = getattr(args, "plugin", None) or []
+    if plugin_paths:
+        plugin_auth = None
+        for module in _load_plugins([str(path) for path in plugin_paths]):
+            candidate = getattr(module, "AUTH", None)
+            if candidate is not None:
+                plugin_auth = candidate
+            if hasattr(module, "on_request"):
+                server.request_hooks.append(module.on_request)
+            if hasattr(module, "on_result"):
+                server.result_hooks.append(module.on_result)
+        if plugin_auth is not None:
+            if server.auth is not None:
+                print("note: plugin AUTH overrides the configured spec/CLI credential",
+                      file=sys.stderr)
+            server.auth = plugin_auth
+    if getattr(args, "cache_warm", False):
+        _start_cache_warm(server)
+
+
+def _scopes_or_fail(args: argparse.Namespace) -> dict[str, dict[str, Any]] | None:
+    """Compiled --http-token-file scopes, or None. Mutually exclusive
+    with a plain --http-token (a scoped fleet deserves its own file)."""
+    path = getattr(args, "http_token_file", None)
+    if not path:
+        return None
+    if getattr(args, "http_token", None):
+        _fail("--http-token and --http-token-file are mutually exclusive")
+    return _read_token_file(str(path))
 
 
 def _spec_mtime(path: str) -> int | None:
@@ -550,6 +697,18 @@ def main(argv: list[str] | None = None) -> None:
     p_mock.add_argument("--delay-ms", type=int, default=0, help="artificial latency per response (default: 0)")
     p_mock.add_argument("--timeout", type=float, default=15.0, help="spec fetch timeout seconds (default: 15)")
 
+    p_diff = sub.add_parser("diff", help="compare two spec versions from the tool-surface view")
+    p_diff.add_argument("old", help="previous spec (path or URL)")
+    p_diff.add_argument("new", help="current spec (path or URL)")
+    p_diff.add_argument("--json", action="store_true", help="machine-readable report")
+    p_diff.add_argument("--fail-on-breaking", action="store_true",
+                        help="exit 1 when breaking changes exist (CI gate)")
+
+    sub.add_parser(
+        "config-schema",
+        help="print the JSON Schema for .mcpify.toml (wire it into your editor)",
+    )
+
     p_doctor = sub.add_parser("doctor", help="inspect a spec and report problems")
     p_doctor.add_argument("spec", help="path or URL of an OpenAPI document")
     p_doctor.add_argument("--json", action="store_true", help="machine-readable output")
@@ -600,7 +759,28 @@ def main(argv: list[str] | None = None) -> None:
         if not tools:
             _fail("no operations matched (the API would expose 0 tools)")
 
-    if args.command == "list":
+    if args.command == "config-schema":
+        from importlib.resources import files
+
+        print(files("mcpify").joinpath("config-schema.json").read_text(encoding="utf-8"), end="")
+
+    elif args.command == "diff":
+        from .diff import diff_specs, render
+
+        try:
+            eski = load_spec(args.old)
+            yeni = load_spec(args.new)
+        except SpecError as err:
+            _fail(str(err))
+        rapor = diff_specs(eski, yeni)
+        if args.json:
+            print(json.dumps(rapor, indent=2))
+        else:
+            print(render(rapor))
+        if args.fail_on_breaking and rapor["breaking"]:
+            sys.exit(1)
+
+    elif args.command == "list":
         if args.json:
             print(
                 json.dumps(
@@ -665,6 +845,7 @@ def main(argv: list[str] | None = None) -> None:
                 [str(entry.get("spec_path", "")) for entry in entries],
                 lambda: agg_server.reload_entries(_build_entries(args, config_data)),
             )
+        _wire_serve_extras(args, agg_server)
         if getattr(args, "http", None):
             from .http_transport import parse_http_bind, serve_http
 
@@ -673,7 +854,7 @@ def main(argv: list[str] | None = None) -> None:
             except ValueError as err:
                 _fail(f"--http {args.http}: {err}")
             token = args.http_token or os.environ.get("MCPIFY_HTTP_TOKEN") or None
-            serve_http(agg_server, host, port, token)
+            serve_http(agg_server, host, port, token, token_scopes=_scopes_or_fail(args))
             return
         labels = ", ".join(entry["label"] for entry in entries)
         print(
@@ -722,6 +903,7 @@ def main(argv: list[str] | None = None) -> None:
             _start_metrics(args.metrics)
         if getattr(args, "reload", False):
             _start_reload([args.spec], lambda: server.reload_tools(_rebuild_single_tools(args)))
+        _wire_serve_extras(args, server)
         if getattr(args, "http", None):
             from .http_transport import parse_http_bind, serve_http
 
@@ -730,7 +912,7 @@ def main(argv: list[str] | None = None) -> None:
             except ValueError as err:
                 _fail(f"--http {args.http}: {err}")
             token = args.http_token or os.environ.get("MCPIFY_HTTP_TOKEN") or None
-            serve_http(server, host, port, token)
+            serve_http(server, host, port, token, token_scopes=_scopes_or_fail(args))
             return
         sekil = "lazy surface (search + schema + call + health)" if args.lazy else f"{len(tools)} tools"
         ekstra = []
@@ -772,6 +954,86 @@ def main(argv: list[str] | None = None) -> None:
         from .repl import run as run_repl
 
         run_repl(agg_server)
+
+    elif args.command == "ui" and entries is not None:
+        from .aggregate import AggregatedServer
+        from .http_transport import parse_http_bind
+        from .ui import serve_ui
+
+        agg_server = AggregatedServer(
+            entries,
+            server_name=args.name,
+            lazy=args.lazy,
+            enable_preview=args.enable_preview,
+            response_format=args.format,
+        )
+        agg_server.ui_config_defaults = dict(config_data.get("serve") or {})
+        if getattr(args, "metrics", None):
+            _start_metrics(args.metrics)
+        if getattr(args, "reload", False):
+            _start_reload(
+                [str(entry.get("spec_path", "")) for entry in entries],
+                lambda: agg_server.reload_entries(_build_entries(args, config_data)),
+            )
+        _wire_serve_extras(args, agg_server)
+        if getattr(args, "http_token_file", None):
+            print("note: --http-token-file scopes apply to the MCP transport (mcpify serve --http); "
+                  "the dashboard keeps its single --http-token", file=sys.stderr)
+        try:
+            host, port = parse_http_bind(args.http or "8787")
+        except ValueError as err:
+            _fail(f"--http {args.http}: {err}")
+        token = args.http_token or os.environ.get("MCPIFY_HTTP_TOKEN") or None
+        serve_ui(agg_server, host, port, token, config_path,
+                 reload_cb=(lambda: agg_server.reload_entries(_build_entries(args, config_data)))
+                 if getattr(args, "reload", False) else None)
+
+    elif args.command == "ui":
+        from .http_client import set_logging
+
+        set_logging(args.verbose, getattr(args, "log_file", None))
+        from .http_transport import parse_http_bind
+        from .ui import serve_ui
+
+        auth = _resolve_auth(args, spec)
+        from .api_server import ApiServer
+
+        try:
+            base = _base_url(spec, args.base_url, getattr(args, "server", None))
+        except SpecError as err:
+            _fail(str(err))
+        server = ApiServer(
+            spec,
+            base,
+            server_name=args.name,
+            auth=auth,
+            timeout=args.timeout,
+            tools=tools,
+            lazy=args.lazy,
+            enable_preview=args.enable_preview,
+            cache_ttl=args.cache_ttl,
+            retry=args.retry,
+            retry_delay=args.retry_delay,
+            response_format=args.format,
+            wait_on_429=getattr(args, "wait_on_429", 0.0),
+        )
+        server.ui_config_defaults = dict(config_data.get("serve") or {})
+        if getattr(args, "metrics", None):
+            _start_metrics(args.metrics)
+        if getattr(args, "reload", False):
+            _start_reload([args.spec], lambda: server.reload_tools(_rebuild_single_tools(args)))
+        _wire_serve_extras(args, server)
+        if getattr(args, "http_token_file", None):
+            print("note: --http-token-file scopes apply to the MCP transport (mcpify serve --http); "
+                  "the dashboard keeps its single --http-token", file=sys.stderr)
+        try:
+            host, port = parse_http_bind(args.http or "8787")
+        except ValueError as err:
+            _fail(f"--http {args.http}: {err}")
+        token = args.http_token or os.environ.get("MCPIFY_HTTP_TOKEN") or None
+        serve_ui(server, host, port, token, config_path,
+                 reload_cb=(lambda: server.reload_tools(_rebuild_single_tools(args)))
+                 if getattr(args, "reload", False) else None)
 
     elif args.command == "try":
         from .http_client import set_logging

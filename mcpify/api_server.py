@@ -16,15 +16,17 @@ Agent-grade surface:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import sys
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from . import __version__ as SERVER_VERSION  # never hardcode: avoids version drift
-from . import metrics
+from . import audit, metrics, otel
 from .convert import convert as convert_format
 from .http_client import OAuth2ClientCredentials, ResponseCache, execute, format_result, remediation
 from .tools import META_TOOL_NAMES, AuthConfig, RequestError, build_request, spec_to_tools
@@ -44,6 +46,7 @@ SEARCH_TOOL = "mcpify_search_tools"
 SCHEMA_TOOL = "mcpify_get_tool_schema"
 CALL_TOOL = "mcpify_call_tool"
 PREVIEW_TOOL = "mcpify_preview_request"
+INVALIDATE_TOOL = "mcpify_cache_invalidate"
 HEALTH_TOOL = "mcpify_health"
 
 
@@ -111,8 +114,12 @@ class ApiServer:
             listed = [SEARCH_TOOL, SCHEMA_TOOL, CALL_TOOL]
         else:
             listed = [tool["name"] for tool in self.tools]
+        self.request_hooks: list[Callable[[dict[str, Any]], dict[str, Any] | None]] = []
+        self.result_hooks: list[Callable[[dict[str, Any]], dict[str, Any] | None]] = []
         if enable_preview:
             listed.append(PREVIEW_TOOL)
+        if self.cache is not None:
+            listed.append(INVALIDATE_TOOL)
         listed.append(HEALTH_TOOL)
         self.listed_names = listed
         self._initialized = False
@@ -199,7 +206,22 @@ class ApiServer:
             "annotations": _annotations(True, False, False, True, "Health check"),
             "_local": True,
         }
-        return [search, schema_tool, call, preview, health]
+        invalidate = {
+            "name": INVALIDATE_TOOL,
+            "description": (
+                "Clear cached GET responses. With no arguments clears the whole "
+                "cache; pass 'path' to drop only entries whose URL contains it. "
+                "Only available when response caching is enabled."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "drop only matching entries"}},
+                "required": [],
+            },
+            "annotations": _annotations(False, False, True, True, "Clear response cache"),
+            "_local": True,
+        }
+        return [search, schema_tool, call, preview, health, invalidate]
 
     # -- public API used by the CLI --------------------------------------
     @property
@@ -265,6 +287,11 @@ class ApiServer:
         request = build_request(context["base"], tool["_meta"], arguments, auth)
         if auth is not None:
             request["url"] = auth.apply_query(request["url"])
+        for hook in self.request_hooks:
+            with contextlib.suppress(Exception):  # eklenti hatasi servisi durdurmaz
+                request = hook(request) or request
+        started = time.monotonic()
+        span = otel.trace_call(tool["name"], str(tool.get("api", self.server_name)))
         result = execute(
             request,
             timeout=context["timeout"],
@@ -289,6 +316,14 @@ class ApiServer:
                 retry_delay=context["retry_delay"],
                 wait_on_429=context["wait_on_429"],
             )
+        latency = time.monotonic() - started
+        span.set_status(200 <= result["status"] < 400, f"HTTP {result['status']}")
+        span.finish(latency)
+        audit.record(tool["name"], str(tool.get("api", self.server_name)),
+                     int(result["status"]), latency, arguments)
+        for hook in self.result_hooks:
+            with contextlib.suppress(Exception):  # eklenti hatasi servisi durdurmaz
+                result = hook(result) or result
         return result
 
     def _metric_labels(self, tool: dict[str, Any]) -> dict[str, str]:
@@ -349,6 +384,13 @@ class ApiServer:
             return self._preview(arguments)
         if name == HEALTH_TOOL:
             return self._health()
+        if name == INVALIDATE_TOOL:
+            raw = arguments.get("path")
+            pattern = str(raw) if raw else None  # no path -> clear everything
+            cleared = self.cache.invalidate(pattern) if self.cache is not None else 0
+            return self._text(json.dumps(
+                {"cleared": cleared, "cache_ttl": self.cache.ttl if self.cache else 0},
+                ensure_ascii=False))
         raise KeyError(name)  # unreachable: meta_tools keys are exactly these
 
     def _health(self) -> dict[str, Any]:
