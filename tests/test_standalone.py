@@ -77,9 +77,11 @@ def test_generate_url_spec_stays_remote(spec_file, tmp_path):
 def test_generate_windows_style_path_compiles(spec_file, tmp_path):
     """Regression: the generated docstring is a raw string, so a Windows
     path (backslashes, \\U escape sequences) must never break it. The
-    file name itself carries backslashes — legal on Linux, so this runs
-    in CI on both platforms and pins the v1.5.1 escape bug class shut."""
-    weird = tmp_path / "C:\\Users\\someone\\spec.json"
+    nested backslash name is legal on both platforms (no drive prefix,
+    so pathlib keeps it under tmp_path on Windows too) and pins the
+    v1.5.1 escape bug class shut."""
+    weird = tmp_path / "win-share\\someone\\spec.json"
+    weird.parent.mkdir(parents=True, exist_ok=True)
     weird.write_text(Path(spec_file).read_text(encoding="utf-8"), encoding="utf-8")
     out = tmp_path / "server.py"
     generate(str(weird), str(out), ["--log-file", "C:\\logs\\mcp.log"])
