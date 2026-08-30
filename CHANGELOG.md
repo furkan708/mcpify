@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-08-30
+
+### Fixed — found by running mcpify against live APIs
+- **Nested truncation for API envelopes:** an oversized envelope like
+  weather.gov's `alerts_active` — small metadata keys + one giant
+  `features` list — used to lose the payload entirely (metadata + an
+  "omitted keys" marker only). Object values that alone exceed the
+  remaining budget are now truncated IN PLACE: arrays keep their first
+  items plus an explicit `mcpify_item_truncated`/`omitted` marker,
+  nested objects keep fitting keys. The agent now receives the first
+  ~190 real alerts in valid JSON instead of 356 chars of metadata.
+  Fitters measure the `{key: value}` wrapper (nesting indentation
+  included), so the 40k budget holds honestly.
+- 2 new tests (412 total, twenty-five suites).
+
 ## [1.12.0] - 2026-08-30
 
 ### Added — the least-privilege release (answers to a reviewer's three sharp points)

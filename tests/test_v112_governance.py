@@ -73,6 +73,40 @@ def test_single_giant_item_falls_back_to_character_cut():
     assert "[truncated" in text
 
 
+def test_oversized_envelope_keeps_payload_with_nested_marker():
+    """Real-world case (weather.gov alerts_active): an envelope whose
+    metadata keys fit but whose payload list alone overflows. The agent
+    must keep the first payload items, not just the metadata."""
+    envelope = {
+        "@context": [1, 2, 3],
+        "type": "FeatureCollection",
+        "title": "Active alerts",
+        "updated": "2026-08-30T12:00:00Z",
+        "features": [
+            {"id": i, "properties": {"event": "Flood Warning", "headline": "h" * 80}}
+            for i in range(3000)
+        ],
+    }
+    text, _ = format_result(result_of(json.dumps(envelope), envelope))
+    parsed = json.loads(text)
+    assert parsed["title"] == "Active alerts"  # metadata survives
+    features = parsed["features"]
+    assert isinstance(features, list) and len(features) > 1
+    assert features[-1]["mcpify_item_truncated"] is True  # explicit marker
+    assert features[-1]["omitted"] > 0
+    assert len(text) <= MAX_RESULT_CHARS  # honest budget
+
+
+def test_oversized_nested_dict_value_keeps_fitting_keys():
+    big = {"meta": {"a": 1}, "data": {f"key_{i:03d}": "y" * 200 for i in range(400)}}
+    text, _ = format_result(result_of(json.dumps(big), big))
+    parsed = json.loads(text)
+    assert parsed["meta"] == {"a": 1}
+    data = parsed["data"]
+    assert isinstance(data, dict) and data.get("mcpify_truncated") is True
+    assert len(text) <= MAX_RESULT_CHARS
+
+
 def test_error_prefix_survives_truncation():
     big = [{"id": i, "payload": "x" * 100} for i in range(2000)]
     text, err = format_result(result_of(json.dumps(big), big, status=500))

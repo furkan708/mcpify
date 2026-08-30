@@ -404,20 +404,93 @@ def _smart_truncate(body: str, limit: int) -> str:
         return byte_cut()  # even a single item overflows
 
     if isinstance(data, dict):
-        keys = list(data)
-        kept_count = len(keys)
-        while kept_count > 0:
-            kept_obj = {key: data[key] for key in keys[:kept_count]}
-            if kept_count < len(keys):
-                kept_obj["mcpify_truncated"] = True
-                kept_obj["mcpify_omitted_keys"] = keys[kept_count:]
+        # Key-keep alone is not enough for API envelopes like
+        # {"features": [3000 alerts]} — metadata keys fit, the payload key
+        # is dropped, and the agent learns nothing. So a value that alone
+        # exceeds the remaining budget is TRUNCATED IN PLACE (nested
+        # array/object logic) instead of being omitted: the agent keeps
+        # the first items of the payload it asked for.
+        kept_obj: dict[str, Any] = {}
+        omitted: list[str] = []
+        used = 0
+        for key, value in data.items():
+            piece_budget = limit - used - len(json.dumps({"mcpify_truncated": True, "mcpify_omitted_keys": ["x" * 40]}, indent=2))
+            if piece_budget <= 0:
+                omitted.append(key)
+                continue
+            piece_text = json.dumps({key: value}, ensure_ascii=False, indent=2)
+            if len(piece_text) <= piece_budget:
+                kept_obj[key] = value
+                used += len(piece_text) + 2
+                continue
+            if isinstance(value, list):
+                fitted = _fit_array(key, value, piece_budget)
+                if fitted is not None:
+                    kept_obj[key], used = fitted
+                    continue
+                omitted.append(key)
+                continue
+            if isinstance(value, dict):
+                fitted = _fit_object(key, value, piece_budget)
+                if fitted is not None:
+                    kept_obj[key], used = fitted
+                    continue
+            omitted.append(key)
+        if not kept_obj:
+            return byte_cut()  # nothing usable fits
+        if omitted:
+            kept_obj["mcpify_truncated"] = True
+            kept_obj["mcpify_omitted_keys"] = omitted
+        text = json.dumps(kept_obj, ensure_ascii=False, indent=2)
+        if len(text) <= limit:
+            return text
+        # the honest measure overshot (marker widths): shrink from the tail
+        for key in list(reversed(list(data))):
+            kept_obj.pop(key, None)
+            kept_obj["mcpify_truncated"] = True
+            kept_obj["mcpify_omitted_keys"] = sorted(
+                set(kept_obj.get("mcpify_omitted_keys", [])) | {key})
+            if not kept_obj.get("mcpify_omitted_keys"):
+                kept_obj.pop("mcpify_omitted_keys", None)
             text = json.dumps(kept_obj, ensure_ascii=False, indent=2)
-            if len(text) <= limit:
+            if len(text) <= limit and kept_obj:
                 return text
-            kept_count = (kept_count * 9) // 10 if kept_count > 20 else kept_count - 1
-        return byte_cut()  # even a single key overflows
+        return byte_cut()
 
     return byte_cut()
+
+
+def _fit_array(key: str, data: list[Any], limit: int) -> tuple[Any, int] | None:
+    """First items of `data` that fit `limit` AS `{key: items}` JSON.
+
+    Measures the WRAPPER (nesting adds indentation), returns
+    (value, budget_left) or None when even one item does not fit.
+    """
+    kept_count = len(data)
+    while kept_count > 0:
+        candidate: list[Any] = list(data[:kept_count])
+        if kept_count < len(data):
+            candidate.append({"mcpify_item_truncated": True, "omitted": len(data) - kept_count})
+        if len(json.dumps({key: candidate}, ensure_ascii=False, indent=2)) <= limit:
+            return candidate, limit - len(json.dumps({key: candidate}, ensure_ascii=False, indent=2))
+        kept_count = (kept_count * 9) // 10 if kept_count > 20 else kept_count - 1
+    return None
+
+
+def _fit_object(key: str, data: dict[str, Any], limit: int) -> tuple[Any, int] | None:
+    """Object shrunk to `limit` AS `{key: {...}}` JSON (first keys +
+    marker when shrunk). Returns (value, budget_left) or None."""
+    keys = list(data)
+    kept_count = len(keys)
+    while kept_count > 0:
+        candidate = {k: data[k] for k in keys[:kept_count]}
+        if kept_count < len(keys):
+            candidate["mcpify_truncated"] = True
+            candidate["mcpify_omitted_keys"] = keys[kept_count:]
+        if len(json.dumps({key: candidate}, ensure_ascii=False, indent=2)) <= limit:
+            return candidate, limit - len(json.dumps({key: candidate}, ensure_ascii=False, indent=2))
+        kept_count = (kept_count * 9) // 10 if kept_count > 20 else kept_count - 1
+    return None
 
 
 def format_result(result: dict[str, Any]) -> tuple[str, bool]:
