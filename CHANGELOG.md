@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-08-30
+
+### Fixed
+- Docker image build: `.dockerignore` excluded `examples/`, but the
+  default CMD serves the bundled petstore spec — the v1.6.0 tag's image
+  build failed with "…/examples/petstore.json: not found" (the new
+  Dockerfile had not been tagged before, so the bug shipped untested).
+  `examples/` is back in the build context; `docker run` without args
+  starts the live demo server again.
+
 ## [1.6.0] - 2026-08-30
 
 ### Added — two transports, terminal REPL, OAuth2, shareable servers
