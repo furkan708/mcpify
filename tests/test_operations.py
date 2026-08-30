@@ -618,7 +618,8 @@ def test_health_tool_reports_reachable_api(api, monkeypatch):
     monkeypatch.setenv("OPS_TOKEN", "gizli")
     auth = type("A", (), {"style": "bearer", "env_var": "OPS_TOKEN",
                           "headers": staticmethod(lambda: {}),
-                          "apply_query": staticmethod(lambda url: url)})()
+                          "apply_query": staticmethod(lambda url: url),
+                          "describe": staticmethod(lambda: {"style": "bearer", "env": "OPS_TOKEN", "env_set": True})})()
     server = make(api, auth=auth, cache_ttl=15, retry=2)
     response = call(server, HEALTH_TOOL, {}, request_id=2)
     rapor = json.loads(response["result"]["content"][0]["text"])

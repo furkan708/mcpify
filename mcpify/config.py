@@ -29,6 +29,8 @@ KNOWN_KEYS = frozenset({
     "timeout", "tag", "include", "exclude", "read-only", "allow", "deny",
     "lazy", "enable-preview", "cache-ttl", "retry", "retry-delay",
     "strict", "format", "verbose", "log-file", "default-env",
+    "oauth2-token-url", "oauth2-client-id-env", "oauth2-client-secret-env",
+    "oauth2-scope", "oauth2-client-auth", "http", "http-token",
 })
 
 _ENV_KEYS = KNOWN_KEYS - {"default-env"}
@@ -209,13 +211,19 @@ def resolve(data: dict, env: str | None = None) -> dict[str, Any]:
 def apply_to_namespace(settings: dict[str, Any], args: Any) -> list[str]:
     """Fill unset argparse attributes from config. CLI flags always win.
 
-    Returns the list of keys the config actually provided (for the
-    stderr banner)."""
+    A value counts as "unset" when it still equals the parser's built-in
+    default — including choice flags whose default is a string ("bearer",
+    "basic", "auto", "mcpify"). Returns the list of keys the config
+    actually provided (for the stderr banner)."""
     applied: list[str] = []
     mapping = {
         "base-url": "base_url", "auth-env": "auth_env", "auth-style": "auth_style",
         "auth-name": "auth_name", "read-only": "read_only", "enable-preview": "enable_preview",
         "cache-ttl": "cache_ttl", "retry-delay": "retry_delay", "log-file": "log_file",
+    }
+    choice_defaults = {
+        "auth_style": "bearer", "oauth2_client_auth": "basic",
+        "name": "mcpify", "format": "auto",
     }
     for key, value in settings.items():
         if key.startswith("_"):
@@ -224,7 +232,9 @@ def apply_to_namespace(settings: dict[str, Any], args: Any) -> list[str]:
         current = getattr(args, attr, None)
         is_default = current is None or current is False or (
             attr in ("timeout", "cache_ttl", "retry_delay") and current == 0
-        ) or (attr == "timeout" and current == 30.0)
+        ) or (attr == "timeout" and current == 30.0) or (
+            attr in choice_defaults and current == choice_defaults[attr]
+        )
         if key in ("read-only", "lazy", "enable-preview", "strict", "verbose"):
             # boolean flags: config may turn them ON; an explicit CLI True stays
             if current is False and value:
@@ -262,6 +272,8 @@ def build_config_document(settings: dict) -> str:
 
     order = [
         "spec", "base-url", "name", "auth-env", "auth-style", "auth-name",
+        "oauth2-token-url", "oauth2-client-id-env", "oauth2-client-secret-env",
+        "oauth2-scope", "oauth2-client-auth", "http",
         "read-only", "timeout", "cache-ttl", "retry", "retry-delay",
         "strict", "lazy", "enable-preview", "format", "log-file",
         "tag", "include", "exclude", "allow", "deny", "verbose",
@@ -331,7 +343,7 @@ def run_wizard(
     if not settings["base-url"]:
         raise ValueError("a base URL is required")
 
-    auth = ask("Auth [1=none 2=bearer 3=header 4=query]", "1")
+    auth = ask("Auth [1=none 2=bearer 3=header 4=query 5=oauth2-cc]", "1")
     if auth == "2":
         settings["auth-env"] = ask("Env variable holding the token", "API_TOKEN")
         settings["auth-style"] = "bearer"
@@ -343,6 +355,15 @@ def run_wizard(
         settings["auth-env"] = ask("Env variable holding the key", "API_KEY")
         settings["auth-style"] = "query"
         settings["auth-name"] = ask("Query parameter name", "api_key")
+    elif auth == "5":
+        settings["oauth2-token-url"] = ask("Token endpoint URL")
+        settings["oauth2-client-id-env"] = ask("Env variable holding the client id", "OAUTH2_CLIENT_ID")
+        secret_env = ask("Env variable holding the client secret (empty = public client)")
+        if secret_env:
+            settings["oauth2-client-secret-env"] = secret_env
+        scope = ask("Scope(s), space-separated (empty = none)")
+        if scope:
+            settings["oauth2-scope"] = scope
 
     if ask_bool("Read-only mode"):
         settings["read-only"] = True
@@ -364,4 +385,10 @@ def run_wizard(
             f"environment variable '{settings['auth-env']}' is not set right now — "
             "set it before serving"
         )
+    for env_key in ("oauth2-client-id-env", "oauth2-client-secret-env"):
+        if settings.get(env_key) and not os.environ.get(settings[env_key]):
+            warnings.append(
+                f"environment variable '{settings[env_key]}' is not set right now — "
+                "set it before serving"
+            )
     return settings, warnings

@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import json
 import re
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from .spec import SpecError, resolve_schema
+
+if TYPE_CHECKING:  # runtime import would be circular (http_client -> tools)
+    from .http_client import OAuth2ClientCredentials
 
 # Body arguments are exposed under this property name.
 BODY_ARG = "body"
@@ -273,7 +277,7 @@ def build_request(
     base_url: str,
     meta: dict,
     arguments: dict,
-    auth: AuthConfig | None = None,
+    auth: AuthConfig | OAuth2ClientCredentials | None = None,
 ) -> dict:
     """Turn tool arguments into a concrete HTTP request (url/headers/body)."""
 
@@ -383,6 +387,16 @@ class AuthConfig:
             raise RequestError(f"environment variable '{self.env_var}' is not set")
         separator = "&" if "?" in url else "?"
         return f"{url}{separator}{self.name or 'api_key'}={quote(value)}"
+
+    def describe(self) -> dict:
+        """Health-report view; OAuth2ClientCredentials mirrors this shape."""
+        import os
+
+        return {
+            "style": self.style,
+            "env": self.env_var,
+            "env_set": bool(os.environ.get(self.env_var)),
+        }
 
 
 def describe_tools(tools: list[dict]) -> str:

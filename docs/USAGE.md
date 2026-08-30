@@ -13,6 +13,9 @@ deployment, troubleshooting, and frequently asked questions.
 6. [How tool naming works](#6-how-tool-naming-works)
 7. [Troubleshooting](#7-troubleshooting)
 8. [FAQ](#8-faq)
+9. [HTTP transport: serve a team](#9-http-transport-serve-a-team)
+10. [Trying tools without an agent (`mcpify try`)](#10-trying-tools-without-an-agent-mcpify-try)
+11. [Sharing a preconfigured server (`mcpify output-server`)](#11-sharing-a-preconfigured-server-mcpify-output-server)
 
 ---
 
@@ -75,6 +78,40 @@ it never sends an unauthenticated request blindly.
 > **Rotation tip:** because the variable is read on every call, rotating
 > the secret requires no server restart — export the new value in the
 > environment where the server process runs.
+
+### OAuth2 client-credentials (RFC 6749 §4.4)
+
+For APIs fronted by an OAuth2 identity provider. mcpify talks the
+**client-credentials grant**: it fetches an access token from your IdP's
+token endpoint, caches it in memory until shortly before `expires_in`,
+refreshes it transparently, and — if the API answers 401 once — drops the
+token and fetches a fresh one before retrying that single call.
+
+```bash
+export OAUTH2_CLIENT_ID="my-service"
+export OAUTH2_CLIENT_SECRET="s3cret"
+mcpify serve acme.json \
+  --oauth2-token-url https://idp.acme.com/oauth2/token \
+  --oauth2-client-id-env OAUTH2_CLIENT_ID \
+  --oauth2-client-secret-env OAUTH2_CLIENT_SECRET \
+  --oauth2-scope "read write"          # optional
+```
+
+Details that matter in production:
+
+- **Secrets stay out of flags and config files.** Only the *names* of the
+  environment variables travel on the command line; the values are read
+  at call time, like every other credential.
+- **Client auth style:** HTTP Basic is the default. Some token endpoints
+  reject Basic — use `--oauth2-client-auth body` to put the credentials
+  in the form body. Public clients (no secret) simply omit
+  `--oauth2-client-secret-env`.
+- **`--auth-env` and `--oauth2-*` are mutually exclusive** — one credential
+  mode per server; mcpify refuses the mix with a clear error.
+- `mcpify_health` reports the full OAuth2 configuration (token URL, which
+  env variables are set) so misconfigurations are visible at a glance.
+- When `expires_in` is absent from the token response, the RFC-recommended
+  3600 s is assumed; a wrong assumption self-heals on the first 401.
 
 ## 3. Scoping which operations are exposed
 
@@ -409,6 +446,107 @@ mcpify serve https://api.example.com
 A bare origin is probed for `/.well-known/openapi.json`, `/openapi.json`,
 `/swagger.json`, `/openapi.yaml` and `/api-docs`. Nothing found → a clear
 error listing every path tried.
+
+## 9. HTTP transport: serve a team
+
+`--http` switches the *same* server (same tools, same policy, same auth)
+from stdio to MCP Streamable HTTP — one process your whole team or
+gateway points at:
+
+```bash
+# local try-out (binds 127.0.0.1)
+mcpify serve acme.json --http 8080
+
+# shared deployment: bind all interfaces AND require a bearer token
+mcpify serve acme.json --http 0.0.0.0:8080 --http-token "$SHARED_TOKEN"
+
+# the token can also come from the environment
+export MCPIFY_HTTP_TOKEN="$SHARED_TOKEN"
+mcpify serve acme.json --http 0.0.0.0:8080
+```
+
+Behavior, precisely:
+
+- clients **POST** JSON-RPC to any path (`http://host:8080/` is fine);
+  responses are `application/json`
+- **stateless** per the current MCP spec: no session ids, no server-side
+  sessions — horizontal scaling needs no sticky routing
+- notifications (messages without an `id`) get `202 Accepted`
+- `GET`/`DELETE` → 405 (there is no server-initiated stream to accept);
+  `OPTIONS` → 204 with the allowed methods
+- without a token, requests are unauthenticated; binding a non-loopback
+  address without `--http-token` prints a prominent warning — put the
+  token in front of anything reachable by others
+- body cap: 10 MB per request (`413` beyond); missing `Content-Length`
+  → 411; wrong `Content-Type` → 415
+- one JSON-RPC message per request: batching was removed from the spec
+  and arrays are rejected with `-32600` (the stdio transport still
+  tolerates legacy batched lines for gateways)
+- transport problems are HTTP status codes; JSON-RPC problems are error
+  bodies agents can read
+
+Docker users: the container listens on stdio by default; pass
+`--http 0.0.0.0:8080` and publish the port to run it as a shared service.
+
+
+## 10. Trying tools without an agent (`mcpify try`)
+
+`try` takes the same flags as `serve` and opens an interactive REPL in
+your terminal — no MCP client required:
+
+```bash
+$ mcpify try acme.json --read-only
+mcpify try — 8 tools. Type :h for help, :q to quit.
+   1. list_pets [read-only]     GET      /pets
+   2. create_pet                POST     /pets
+   3. get_pet [read-only]       GET      /pets/{petId}
+mcpify try> 3
+→ get_pet
+  petId* (integer): 7
+  ✓ (0.12s)
+  {
+    "id": 7,
+    "name": "Pet7"
+  }
+mcpify try> :q
+```
+
+Commands: `<number>`/`<name>` selects a tool, `:raw NAME {"json": "args"}`
+calls with inline JSON, `:info [NAME]` shows the full schema, `:ls`
+re-lists, `:q` quits (Ctrl+C/D work too). Arguments are prompted field by
+field with the schema's types, enums and defaults — a wrong type is
+re-asked, not silently dropped.
+
+**What you see is what an agent gets:** `try` runs the identical
+execution path as MCP `tools/call` — same auth, retry, cache, truncation,
+remediation. It is also the fastest way to sanity-check credentials and
+scopes before wiring the server into a client.
+
+
+## 11. Sharing a preconfigured server (`mcpify output-server`)
+
+Bake a serve command into a small, readable Python script:
+
+```bash
+mcpify output-server acme.json -o server.py -- \
+  --base-url https://api.acme.com \
+  --auth-env ACME_TOKEN --read-only --retry 2
+```
+
+Teammates run `python3 server.py` and get the identical MCP server — no
+flags to remember, no docs to re-read. The script:
+
+- **embeds a local spec** (base64 of the raw file — quoting can never
+  break) or **keeps a remote URL** fetched at startup
+- calls the public mcpify CLI, so its behavior always matches the
+  installed version (header states: requires `mcpify-openapi >= 1.6`)
+- never embeds credential **values** — only environment-variable names
+  travel in the script; `--http-token` is the one flag that would embed a
+  secret, so generation warns loudly if you bake it
+- refuses to overwrite an existing file without `--force`, and validates
+  the flags you pass after `--` against the real serve parser — typos
+  fail at generation time, not at your teammate's desk
+
 
 ## Batch requests (legacy tolerance)
 

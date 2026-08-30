@@ -6,6 +6,8 @@ Operational add-ons, all opt-in and all stdlib:
   failures only — POST/PATCH are NEVER retried (side effects)
 - verbose / --log-file: stderr and/or file logging; URLs without query
   strings, Authorization values masked, bodies only as size-capped text
+- OAuth2ClientCredentials: RFC 6749 client-credentials flow with a
+  thread-safe, expiring token cache (tokens live in memory only)
 """
 
 from __future__ import annotations
@@ -17,7 +19,11 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+from collections.abc import Callable
+
+from .tools import RequestError
 
 _DEBUG = os.environ.get("MCPIFY_DEBUG") == "1"
 _VERBOSE = False
@@ -262,3 +268,157 @@ def format_result(result: dict) -> tuple[str, bool]:
     if is_error:
         return f"HTTP {result['status']}\n{body}", is_error
     return body, is_error
+
+
+# ---------------------------------------------------------------------------
+# OAuth2 client-credentials flow (RFC 6749 section 4.4), stdlib only
+# ---------------------------------------------------------------------------
+
+OAUTH2_DEFAULT_TTL = 3600     # RFC 6749 recommendation when expires_in is absent
+OAUTH2_REFRESH_MARGIN = 30.0  # refresh this many seconds before real expiry
+
+
+class OAuth2ClientCredentials:
+    """Bearer-token provider for the client-credentials grant.
+
+    Fetches, caches and refreshes an access token from ``token_url`` and
+    produces the ``Authorization: Bearer ...`` header for outgoing API
+    calls. Duck-types AuthConfig (headers/apply_query/describe) so
+    ApiServer needs no special casing except the 401 self-heal.
+
+    Design points, all deliberate:
+    - credentials come from environment variables, never flags or the
+      config file, so nothing secret lands in ps/history/disk
+    - the token lives in memory only, guarded by a lock (tools/call can
+      run concurrently through the batch path)
+    - when ``expires_in`` is missing the RFC-recommended 3600 s is
+      assumed; a stale token self-heals via invalidate() on the first 401
+    - client authentication defaults to HTTP Basic; ``body`` mode puts
+      client_id/client_secret in the form body for token endpoints that
+      require it
+    """
+
+    def __init__(
+        self,
+        token_url: str,
+        client_id_env: str,
+        client_secret_env: str | None = None,
+        scope: str | None = None,
+        client_auth: str = "basic",
+        timeout: float = 30.0,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
+        if client_auth not in ("basic", "body"):
+            raise ValueError("client_auth must be 'basic' or 'body'")
+        self.token_url = token_url
+        self.client_id_env = client_id_env
+        self.client_secret_env = client_secret_env
+        self.scope = scope
+        self.client_auth = client_auth
+        self.timeout = timeout
+        self._clock = clock or time.time
+        self._token: str | None = None
+        self._expires_at = 0.0
+        self._lock = threading.Lock()
+
+    @property
+    def style(self) -> str:
+        return "oauth2-client-credentials"
+
+    def _credentials(self) -> tuple[str, str | None]:
+        import os
+
+        client_id = os.environ.get(self.client_id_env, "")
+        if not client_id:
+            raise RequestError(
+                f"environment variable '{self.client_id_env}' is not set "
+                "(required for the OAuth2 client id)"
+            )
+        secret: str | None = None
+        if self.client_secret_env:
+            secret = os.environ.get(self.client_secret_env, "")
+            if not secret:
+                raise RequestError(
+                    f"environment variable '{self.client_secret_env}' is not set "
+                    "(required for the OAuth2 client secret)"
+                )
+        return client_id, secret
+
+    def _fetch(self) -> None:
+        client_id, secret = self._credentials()
+        form: list[tuple[str, str]] = [("grant_type", "client_credentials")]
+        if self.scope:
+            form.append(("scope", self.scope))
+        if self.client_auth == "body":
+            # RFC 6749: public clients (no secret) still identify via client_id
+            form.append(("client_id", client_id))
+            if secret is not None:
+                form.append(("client_secret", secret))
+        headers = {"Content-Type": "application/x-www-form-urlencoded",
+                   "Accept": "application/json"}
+        if self.client_auth == "basic" and secret is not None:
+            import base64
+
+            raw = f"{client_id}:{secret}".encode()
+            headers["Authorization"] = "Basic " + base64.b64encode(raw).decode("ascii")
+        request = {
+            "method": "POST",
+            "url": self.token_url,
+            "headers": headers,
+            "body": urllib.parse.urlencode(form).encode("utf-8"),
+        }
+        _log("INFO", f"oauth2: requesting token from {self.token_url}")
+        result = _execute_once(request, self.timeout, None)
+        if result["status"] == 0:
+            raise RequestError(
+                f"oauth2: token endpoint unreachable ({result['body'][:200]})"
+            )
+        payload = result.get("json")
+        if result["status"] != 200 or not isinstance(payload, dict) or not payload.get("access_token"):
+            detail = ""
+            if isinstance(payload, dict):
+                detail = str(payload.get("error_description") or payload.get("error") or "")[:200]
+            raise RequestError(
+                f"oauth2: token request failed with HTTP {result['status']}"
+                + (f": {detail}" if detail else "")
+            )
+        # caller (headers()) holds self._lock — assign directly; a
+        # non-reentrant Lock here would deadlock on the double-checked path
+        self._token = str(payload["access_token"])
+        try:
+            ttl = float(payload.get("expires_in", OAUTH2_DEFAULT_TTL))
+        except (TypeError, ValueError):
+            ttl = OAUTH2_DEFAULT_TTL
+        self._expires_at = self._clock() + max(ttl, 1.0)
+        _log("INFO", "oauth2: token acquired")
+
+    def headers(self) -> dict:
+        if self._token is None or self._clock() > self._expires_at - OAUTH2_REFRESH_MARGIN:
+            with self._lock:
+                if self._token is None or self._clock() > self._expires_at - OAUTH2_REFRESH_MARGIN:
+                    self._fetch()
+        assert self._token is not None  # _fetch raised or set it
+        return {"Authorization": f"Bearer {self._token}"}
+
+    def apply_query(self, url: str) -> str:
+        return url  # bearer token only; never in the query string
+
+    def invalidate(self) -> None:
+        """Drop the cached token so the next call fetches a fresh one."""
+        with self._lock:
+            self._token = None
+            self._expires_at = 0.0
+
+    def describe(self) -> dict:
+        import os
+
+        return {
+            "style": self.style,
+            "token_url": self.token_url,
+            "client_auth": self.client_auth,
+            "scope": self.scope,
+            "client_id_env": self.client_id_env,
+            "client_id_env_set": bool(os.environ.get(self.client_id_env)),
+            "client_secret_env": self.client_secret_env,
+            "client_secret_env_set": bool(os.environ.get(self.client_secret_env)) if self.client_secret_env else None,
+        }

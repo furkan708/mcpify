@@ -6,6 +6,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-08-30
+
+### Added — two transports, terminal REPL, OAuth2, shareable servers
+- **HTTP transport:** `mcpify serve SPEC --http [HOST:]PORT` exposes the
+  identical tool surface over MCP Streamable HTTP (stdlib `http.server`,
+  stateless per the current spec). Optional bearer auth via
+  `--http-token` / `MCPIFY_HTTP_TOKEN`, 405/411/413/415 transport-error
+  ladder, JSON-RPC parse/batch rejections, 10 MB body cap, unauthenticated
+  non-loopback bind warning.
+- **`mcpify try`:** interactive terminal REPL to call the generated tools
+  without an agent client — typed field-by-field prompts, `:raw`, `:info`,
+  graceful EOF/Ctrl+C, identical execution path to `tools/call`.
+- **OAuth2 client-credentials (RFC 6749 §4.4):** `--oauth2-token-url` +
+  env-based client credentials; in-memory token cache with expiry margin,
+  Basic or body client auth, public-client support, and a one-shot 401
+  self-heal on the same call.
+- **`mcpify output-server`:** bakes a serve command (and, for local
+  specs, the spec itself) into a shareable standalone script; refuses
+  silent overwrites, validates baked flags against the real serve parser,
+  warns when `--http-token` would embed a secret.
+- **Config & wizard:** OAuth2 and HTTP keys are accepted in
+  `.mcpify.toml`/`yaml`/`json` (now actually applied when the CLI leaves
+  a choice flag at its default), and `mcpify init` offers the OAuth2 flow
+  as auth option 5.
+
+### Tests
+- 162 → **245 passing** (16 suites): new suites for the HTTP transport
+  (19), OAuth2 flow with a fake clock (18), the REPL driven over piped
+  stdin (26), `output-server` including a real subprocess E2E (10), and
+  CLI connectivity glue (10).
+
+## [1.5.3] - 2026-08-29
+
+### Fixed
+- `server.json` description shortened to fit the official MCP Registry's
+  100-character limit (v1.5.2's longer positioning text had failed the
+  Registry publish; PyPI keeps the full description).
+
+## [1.5.2] - 2026-08-29
+
+### Changed
+- Positioning across README, metadata and docs: focused,
+  production-ready, CLI-first — "Focused doesn't mean small".
+
+## [1.5.1] - 2026-08-29
+
+### Fixed
+- Windows/TOML hardening: literal strings for Windows paths, single-quote
+  support in the Python 3.10 subset parser, temp-file descriptor closed
+  before reuse in `status` (WinError 32).
+
+## [1.5.0] - 2026-08-29
+
+### Added — operational layer
+- Config files (`.mcpify.toml` / `.yaml` / `.json`) with per-environment
+  `[envs.NAME]` sections and CLI > env > serve > defaults precedence;
+  `mcpify init` wizard; verbose + log-file logging with masked
+  credentials; GET response cache (`--cache-ttl`); safe idempotent-only
+  retries (`--retry`, 502/503/504, hard cap 5); origin auto-discovery via
+  well-known paths; `--strict` argument mode; XML→JSON conversion
+  (`--format`); legacy batch tolerance with concurrent `tools/call`;
+  `mcpify_health` tool and `mcpify status` command.
+
+## [1.4.0] - 2026-08-29
+
+### Added
+- Stateless MCP compatibility: requests carrying
+  `_meta["io.modelcontextprotocol/protocolVersion"]` (2026-07-28 spec)
+  are accepted without a handshake, while the legacy 2025-06-18
+  initialize flow keeps working unchanged; protocol-version compat test
+  suite.
+
 ## [1.3.0] - 2026-08-29
 
 ### Added

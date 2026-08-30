@@ -24,8 +24,13 @@ from typing import Any
 
 from . import __version__ as SERVER_VERSION  # never hardcode: avoids version drift
 from .convert import convert as convert_format
-from .http_client import ResponseCache, execute, format_result, remediation
+from .http_client import OAuth2ClientCredentials, ResponseCache, execute, format_result, remediation
 from .tools import META_TOOL_NAMES, AuthConfig, RequestError, build_request, spec_to_tools
+
+# Anything that can inject credentials into outgoing requests: the static
+# env-var credential or the OAuth2 client-credentials flow (duck-typed
+# interface: headers/apply_query/describe).
+AuthProvider = AuthConfig | OAuth2ClientCredentials
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "mcpify"
@@ -63,7 +68,7 @@ class ApiServer:
         spec: dict,
         base_url: str,
         server_name: str = "mcpify",
-        auth: AuthConfig | None = None,
+        auth: AuthProvider | None = None,
         timeout: float = 30.0,
         tools: list[dict] | None = None,
         lazy: bool = False,
@@ -76,7 +81,7 @@ class ApiServer:
         self.spec = spec
         self.base_url = base_url
         self.server_name = server_name
-        self.auth = auth
+        self.auth: AuthProvider | None = auth
         self.timeout = timeout
         self.lazy = lazy
         # tools may be pre-filtered by the CLI policy layer; building them
@@ -227,6 +232,21 @@ class ApiServer:
             retry=self.retry,
             retry_delay=self.retry_delay,
         )
+        # OAuth2 self-heal: a token that expired server-side (or was
+        # revoked mid-flight) surfaces as 401 once. Drop the cached
+        # token, rebuild the request with a fresh one, and retry a
+        # single time — a second 401 is a real authorization problem
+        # and is reported as such.
+        if result["status"] == 401 and isinstance(self.auth, OAuth2ClientCredentials):
+            self.auth.invalidate()
+            request = build_request(self.base_url, tool["_meta"], arguments, self.auth)
+            result = execute(
+                request,
+                timeout=self.timeout,
+                cache=self.cache,
+                retry=self.retry,
+                retry_delay=self.retry_delay,
+            )
         return self._payload_for(tool, result)
 
     def _payload_for(self, tool: dict, result: dict) -> dict:
@@ -277,7 +297,6 @@ class ApiServer:
         raise KeyError(name)  # unreachable: meta_tools keys are exactly these
 
     def _health(self) -> dict:
-        import os
         import time as _time
 
         started = _time.monotonic()
@@ -289,13 +308,7 @@ class ApiServer:
         )
         latency = _time.monotonic() - started
         reachable = probe["status"] != 0
-        auth = None
-        if self.auth is not None:
-            auth = {
-                "style": self.auth.style,
-                "env": self.auth.env_var,
-                "env_set": bool(os.environ.get(self.auth.env_var)),
-            }
+        auth = self.auth.describe() if self.auth is not None else None
         report = {
             "api_reachable": reachable,
             "api_status": probe["status"],
@@ -402,14 +415,14 @@ class ApiServer:
             if key.lower() == "authorization":
                 scheme = value.split(" ", 1)[0]
                 headers[key] = f"{scheme} ***"
-            elif self.auth is not None and self.auth.style == "header" and key == (
+            elif isinstance(self.auth, AuthConfig) and self.auth.style == "header" and key == (
                 self.auth.name or "X-API-Key"
             ):
                 headers[key] = "***"
             else:
                 headers[key] = value
         url = request["url"]
-        if self.auth is not None and self.auth.style == "query":
+        if isinstance(self.auth, AuthConfig) and self.auth.style == "query":
             name = self.auth.name or "api_key"
             url = re.sub(rf"([?&]{re.escape(name)}=)[^&]*", r"\1***", url)
         return {**request, "headers": headers, "url": url}
@@ -545,7 +558,7 @@ def serve(
     spec_path: str,
     base_url: str,
     name: str = "mcpify",
-    auth: AuthConfig | None = None,
+    auth: AuthProvider | None = None,
     timeout: float = 30.0,
     tools: list[dict] | None = None,
     lazy: bool = False,

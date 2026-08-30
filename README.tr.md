@@ -37,6 +37,12 @@ mcpify list ./openapi.json --read-only
 
 # 3. Sunucuyu başlatın — API'niz artık bir MCP sunucusu
 mcpify serve ./openapi.json --read-only
+
+# 4. Elinizin altında ajan istemcisi yok mu? Araçları terminalden deneyin
+mcpify try ./openapi.json
+
+# 5. Ya da tüm ekiple paylaşın: HTTP üzerinden MCP
+mcpify serve ./openapi.json --http 8080 --http-token $PAYLASILAN_TOKEN
 ```
 
 Claude Desktop yapılandırması (`claude_desktop_config.json`):
@@ -65,13 +71,17 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 | Doktor | `mcpify doctor ./openapi.json` | Spec'i denetler: eksik operationId, ölü server adresleri vb. |
 | Zaman aşımı | `--timeout 30` | API yavaşsa ajanı bekletmez |
 | Agent yüzeyi | varsayılan + `--lazy`, `--enable-preview` | HTTP'den annotation'lar, structured output, öğreten hatalar; api.weather.gov'da ölçülmüş **%95,5** listeleme kazancı |
+| İki transport | `serve` / `serve --http 8080` | stdio yerel ajanlar için; Streamable HTTP ekip/gateway paylaşımı için (`--http-token` ile bearer koruması) |
+| OAuth2 client-credentials | `--oauth2-token-url ... --oauth2-client-id-env ...` | Token endpoint'ine bağlanır; token'ı çeker, cache'ler, yeniler, 401'de kendini düzeltir |
+| Terminal REPL'i | `mcpify try ./openapi.json` | Ajan istemcisi olmadan araçları elle çağırın: seç, argüman gir, gerçek yanıtı gör |
+| Paylaşılabilir sunucu | `mcpify output-server spec.json -o server.py` | serve komutunu küçük bir betiğe gömer; ekip `python3 server.py` der ve aynı sunucuyu alır |
 
 ## Neden önemli?
 
 - **Odaklı ve üretim hazırı:** Tek iş (OpenAPI → MCP), tek arayüz (stdio
   üzerinde tek komut), sıfır runtime bağımlılığı. Odaklılık küçüklük demek değil:
-  11 pakette 162 test, çift MCP-spec uyumu, politika katmanı, cache, güvenli
-  retry ve health sorgusu bu tek işi destekliyor.
+  16 pakette 245 test, iki transport (stdio + HTTP), çift MCP-spec uyumu, OAuth2,
+  politika katmanı, cache, güvenli retry ve health sorgusu bu tek işi destekliyor.
 - **Token bütçesi:** Her araç tanımı modelin bağlam penceresini (context) tüketir.
   mcpify'ın filtreleriyle yalnızca ilgili uçları açarsınız; CLI tabanlı yaklaşımlardan
   belirgin biçimde daha az token harcarsınız.
@@ -91,7 +101,7 @@ Tam liste: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
 ## Test ve kalite
 
-**162 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
+**245 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
 yükleyen canlı entegrasyon testidir (çevrimdışında otomatik atlanır).
 Tüm paketler Python 3.10–3.12 üzerinde Linux ve Windows'ta koşar; her
 push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
@@ -110,6 +120,11 @@ push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
 | `$ref` parametreleri | 4 | parametre şemalarının tam spec'e karşı çözümlenmesi — weather.gov hata sınıfı (biri canlı dokümana vurur) |
 | Protokol sürüm uyumu | 5 | 2026-07-28 stateless `_meta` istekleri ve eski 2025-06-18 el sıkışması aynı hatta |
 | Operasyon & yapılandırma | 41 | config dosyaları + env önceliği, init sihirbazı, cache TTL, retry güvenliği, XML dönüşümü, keşif, batch, status/health |
+| HTTP transport | 19 | Streamable HTTP: POST üzerinden yaşam döngüsü, 405/411/413/415 hata merdiveni, parse/batch reddi, bearer zorlaması, bind-string ayrıştırıcı |
+| OAuth2 client-credentials | 18 | saatle token çekme/cache/yenileme, Basic vs body istemci kimliği, public client, her hata türü, 401 öz-düzeltme |
+| `try` REPL | 26 | borulu stdin oturumları: numara/isimle seçim, tipli girdi, hatalı girdide yeniden sorma, `:raw`/`:info`, temiz EOF/Ctrl+C çıkışı |
+| `output-server` | 10 | gömülü spec bütünlüğü, koruma rayları, sır uyarıları ve gerçek subprocess E2E el sıkışması |
+| CLI bağlantı yapıştırıcısı | 10 | `--http` kablolaması, `MCPIFY_HTTP_TOKEN` yedeği, OAuth2 bayrak kuralları, config anahtarları, sihirbaz 5. seçenek, `try` duman testi |
 
 İlke: sahada bulunan her hata, düzeltme gönderilmeden önce regresyon
 testine çevrilir — paket yalnızca büyür.

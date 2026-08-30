@@ -10,12 +10,15 @@ import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import NoReturn
+from typing import TYPE_CHECKING, NoReturn
 
 from . import __version__
 from .config import apply_to_namespace, load_config, resolve, validate
 from .spec import SpecError, discover_spec, iter_operations, load_spec, spec_servers
 from .tools import AuthConfig, spec_to_tools
+
+if TYPE_CHECKING:
+    from .http_client import OAuth2ClientCredentials
 
 USE_COLOR = (
     sys.stdout.isatty()
@@ -104,7 +107,146 @@ def _base_url(spec: dict, override: str | None) -> str:
     )
 
 
+def _add_serve_options(p: argparse.ArgumentParser, with_http: bool) -> None:
+    """Attach the shared serve flags. `mcpify serve` and `mcpify try` use
+    the same surface (minus --http*, which only makes sense for serve) so
+    a config file or flag set means one thing everywhere."""
+    p.add_argument("spec", nargs="?", help="path or URL of an OpenAPI document (bare origin auto-discovers; may come from the config)")
+    p.add_argument("--base-url", help="API base URL (default: spec servers[0])")
+    p.add_argument("--name", default="mcpify", help="server name reported to clients")
+    p.add_argument("--auth-env", help="env variable holding the API credential")
+    p.add_argument(
+        "--auth-style",
+        choices=("bearer", "header", "query"),
+        default="bearer",
+        help="how to send the credential (default: bearer)",
+    )
+    p.add_argument("--auth-name", help="header or query parameter name for non-bearer auth")
+    p.add_argument("--oauth2-token-url", help="OAuth2 client-credentials token endpoint (RFC 6749)")
+    p.add_argument("--oauth2-client-id-env", help="env variable holding the OAuth2 client id")
+    p.add_argument("--oauth2-client-secret-env", help="env variable holding the OAuth2 client secret")
+    p.add_argument("--oauth2-scope", help="space-separated scope(s) to request")
+    p.add_argument("--oauth2-client-auth", choices=("basic", "body"), default="basic",
+                   help="client authentication style for the token endpoint (default: basic)")
+    p.add_argument("--timeout", type=float, default=30.0, help="HTTP timeout seconds")
+    p.add_argument("--tag", help="only operations with this tag")
+    p.add_argument("--include", action="append", help="only these path prefixes (repeatable)")
+    p.add_argument("--exclude", action="append", help="skip these path prefixes (repeatable)")
+    p.add_argument("--read-only", action="store_true", help="expose only GET operations")
+    p.add_argument(
+        "--lazy",
+        action="store_true",
+        help="expose search/get-schema/call meta tools instead of the full listing "
+        "(for very large APIs; saves the client's context window)",
+    )
+    p.add_argument(
+        "--enable-preview",
+        action="store_true",
+        help="add mcpify_preview_request, a dry-run tool that shows the exact "
+        "request a call would send (credentials masked, nothing sent)",
+    )
+    p.add_argument("--config", help="config file (auto-discovers .mcpify.toml/.yaml/.json in cwd when omitted)")
+    p.add_argument("--env", help="environment section from the config ([envs.NAME])")
+    p.add_argument("--verbose", action="store_true", help="log every request/response (status, timing, excerpt) to stderr")
+    p.add_argument("--log-file", help="append the same log to a file (bodies truncated, credentials masked)")
+    p.add_argument("--cache-ttl", type=float, default=0.0, metavar="SEC",
+                   help="cache GET+200 responses in memory for this many seconds")
+    p.add_argument("--retry", type=int, default=0, metavar="N",
+                   help="retry idempotent requests (GET/PUT/DELETE) up to N times on 502/503/504 or connection failure (max 5)")
+    p.add_argument("--retry-delay", type=float, default=1.0, metavar="SEC", help="wait between retries")
+    p.add_argument("--strict", action="store_true", help="advertise every argument as required in the tool schemas")
+    p.add_argument("--format", choices=("auto", "json", "xml"), default="auto",
+                   help="auto: convert XML responses (per Content-Type) to JSON; xml: force conversion")
+    p.add_argument("--allow", action="append", metavar="REGEX",
+                   help="re-include operations dropped by --read-only (repeatable)")
+    p.add_argument("--deny", action="append", metavar="REGEX",
+                   help="never expose matching paths, overrides --allow (repeatable)")
+    if with_http:
+        p.add_argument("--http", metavar="[HOST:]PORT",
+                       help="serve MCP over Streamable HTTP (POST JSON-RPC) instead of stdio; "
+                       "bare PORT binds 127.0.0.1")
+        p.add_argument("--http-token", help="require this bearer token on HTTP POSTs "
+                       "(falls back to MCPIFY_HTTP_TOKEN)")
+
+
+def _resolve_auth(args: argparse.Namespace) -> AuthConfig | OAuth2ClientCredentials | None:
+    """Build the auth provider from flags. OAuth2 (client-credentials) and
+    the static --auth-env credential are mutually exclusive modes."""
+    from .http_client import OAuth2ClientCredentials
+
+    token_url = getattr(args, "oauth2_token_url", None)
+    if token_url:
+        if getattr(args, "auth_env", None):
+            _fail(
+                "--auth-env and --oauth2-token-url are mutually exclusive: "
+                "pick one credential mode per server"
+            )
+        client_id_env = getattr(args, "oauth2_client_id_env", None)
+        if not client_id_env:
+            _fail("--oauth2-token-url requires --oauth2-client-id-env")
+        return OAuth2ClientCredentials(
+            token_url,
+            client_id_env,
+            client_secret_env=getattr(args, "oauth2_client_secret_env", None),
+            scope=getattr(args, "oauth2_scope", None),
+            client_auth=getattr(args, "oauth2_client_auth", "basic"),
+            timeout=args.timeout,
+        )
+    if getattr(args, "auth_env", None):
+        return AuthConfig(args.auth_env, args.auth_style, args.auth_name)
+    return None
+
+
+def _run_output_server(rest: list[str]) -> None:
+    """`mcpify output-server SPEC -o FILE [--force] [-- <any serve flags>]`.
+
+    Everything after the recognized options is validated against the real
+    serve parser, then baked verbatim into the generated script — so any
+    current or future serve flag works without this command tracking it."""
+    parser = argparse.ArgumentParser(
+        prog="mcpify output-server",
+        description="Bake a `mcpify serve` command into a shareable standalone script. "
+        "Serve flags go after -- (e.g. -- --read-only --timeout 5); the target "
+        "environment needs mcpify-openapi installed.",
+    )
+    parser.add_argument("spec", help="path or URL of the OpenAPI document (a local file is embedded)")
+    parser.add_argument("-o", "--output", required=True, help="script file to write")
+    parser.add_argument("--force", action="store_true", help="overwrite an existing file")
+    args, extras = parser.parse_known_args(rest)
+    # argparse version differences: some Pythons keep the "--" separator in
+    # extras, some strip it. Normalize so validation sees only real flags.
+    if extras and extras[0] == "--":
+        extras = extras[1:]
+
+    bare = argparse.ArgumentParser(add_help=False)
+    _add_serve_options(bare, with_http=True)
+    known, unknown = bare.parse_known_args(extras)
+    # unknown flags first: an unknown option's value can be misparsed as a
+    # positional by parse_known_args, and the flag typo is the real problem
+    if unknown:
+        _fail(f"unknown serve flag(s) after --: {' '.join(unknown)}")
+    if known.spec:
+        _fail("the baked flags must not contain a spec — the spec is passed once, before --")
+
+    from .standalone import MIN_MCPIFY, generate
+
+    try:
+        warnings = generate(args.spec, args.output, extras, force=args.force)
+    except ValueError as err:
+        _fail(str(err))
+    except OSError as err:
+        _fail(f"cannot write {args.output}: {err}")
+    for warning in warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+    print(f"wrote {args.output}")
+    print(f"next: python3 {args.output}   (requires mcpify-openapi >= {MIN_MCPIFY})")
+
+
 def main(argv: list[str] | None = None) -> None:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "output-server":
+        _run_output_server(argv[1:])
+        return
     parser = argparse.ArgumentParser(
         prog="mcpify",
         description=(
@@ -127,51 +269,26 @@ def main(argv: list[str] | None = None) -> None:
                         help="never expose matching paths, overrides --allow (repeatable)")
     p_list.add_argument("--json", action="store_true", help="machine-readable output")
 
-    p_serve = sub.add_parser("serve", help="start the MCP stdio server")
-    p_serve.add_argument("spec", nargs="?", help="path or URL of an OpenAPI document (bare origin auto-discovers; may come from the config)")
-    p_serve.add_argument("--base-url", help="API base URL (default: spec servers[0])")
-    p_serve.add_argument("--name", default="mcpify", help="server name reported to clients")
-    p_serve.add_argument("--auth-env", help="env variable holding the API credential")
-    p_serve.add_argument(
-        "--auth-style",
-        choices=("bearer", "header", "query"),
-        default="bearer",
-        help="how to send the credential (default: bearer)",
+    p_serve = sub.add_parser("serve", help="start the MCP server on stdio (or --http for Streamable HTTP)")
+    _add_serve_options(p_serve, with_http=True)
+
+    p_try = sub.add_parser("try", help="interactive REPL: call the tools in your terminal, no agent client needed")
+    _add_serve_options(p_try, with_http=False)
+
+    # Help-only stub: real invocations are dispatched by _run_output_server
+    # before this parser is built (its flags must validate against the serve
+    # surface, which argparse cannot express in one parser). Keeping the
+    # entry here makes `mcpify --help` list the command.
+    p_gen = sub.add_parser(
+        "output-server",
+        help="bake a serve command into a standalone shareable script (serve flags after --)",
+        description="Bake a `mcpify serve` command into a shareable standalone script. "
+        "Serve flags go after -- (e.g. -- --read-only --timeout 5); the target "
+        "environment needs mcpify-openapi installed.",
     )
-    p_serve.add_argument("--auth-name", help="header or query parameter name for non-bearer auth")
-    p_serve.add_argument("--timeout", type=float, default=30.0, help="HTTP timeout seconds")
-    p_serve.add_argument("--tag", help="only operations with this tag")
-    p_serve.add_argument("--include", action="append", help="only these path prefixes (repeatable)")
-    p_serve.add_argument("--exclude", action="append", help="skip these path prefixes (repeatable)")
-    p_serve.add_argument("--read-only", action="store_true", help="expose only GET operations")
-    p_serve.add_argument(
-        "--lazy",
-        action="store_true",
-        help="expose search/get-schema/call meta tools instead of the full listing "
-        "(for very large APIs; saves the client's context window)",
-    )
-    p_serve.add_argument(
-        "--enable-preview",
-        action="store_true",
-        help="add mcpify_preview_request, a dry-run tool that shows the exact "
-        "request a call would send (credentials masked, nothing sent)",
-    )
-    p_serve.add_argument("--config", help="config file (auto-discovers .mcpify.toml/.yaml/.json in cwd when omitted)")
-    p_serve.add_argument("--env", help="environment section from the config ([envs.NAME])")
-    p_serve.add_argument("--verbose", action="store_true", help="log every request/response (status, timing, excerpt) to stderr")
-    p_serve.add_argument("--log-file", help="append the same log to a file (bodies truncated, credentials masked)")
-    p_serve.add_argument("--cache-ttl", type=float, default=0.0, metavar="SEC",
-                         help="cache GET+200 responses in memory for this many seconds")
-    p_serve.add_argument("--retry", type=int, default=0, metavar="N",
-                         help="retry idempotent requests (GET/PUT/DELETE) up to N times on 502/503/504 or connection failure (max 5)")
-    p_serve.add_argument("--retry-delay", type=float, default=1.0, metavar="SEC", help="wait between retries")
-    p_serve.add_argument("--strict", action="store_true", help="advertise every argument as required in the tool schemas")
-    p_serve.add_argument("--format", choices=("auto", "json", "xml"), default="auto",
-                         help="auto: convert XML responses (per Content-Type) to JSON; xml: force conversion")
-    p_serve.add_argument("--allow", action="append", metavar="REGEX",
-                         help="re-include operations dropped by --read-only (repeatable)")
-    p_serve.add_argument("--deny", action="append", metavar="REGEX",
-                         help="never expose matching paths, overrides --allow (repeatable)")
+    p_gen.add_argument("spec", help="path or URL of the OpenAPI document (a local file is embedded)")
+    p_gen.add_argument("-o", "--output", required=True, help="script file to write")
+    p_gen.add_argument("--force", action="store_true", help="overwrite an existing file")
 
     p_init = sub.add_parser("init", help="interactive wizard that writes a .mcpify.toml config")
     p_init.add_argument("--config", default=".mcpify.toml", help="config file to write (default: .mcpify.toml)")
@@ -194,7 +311,7 @@ def main(argv: list[str] | None = None) -> None:
     tools: list[dict] = []  # status computes its own count
 
     config_path = None
-    if args.command in ("serve", "status"):
+    if args.command in ("serve", "status", "try"):
         try:
             config_path, data = load_config(getattr(args, "config", None))
             if config_path is not None:
@@ -209,7 +326,7 @@ def main(argv: list[str] | None = None) -> None:
         except ValueError as err:
             _fail(str(err))
 
-    if args.command in ("list", "serve"):
+    if args.command in ("list", "serve", "try"):
         if getattr(args, "spec", None) is None:
             _fail("a spec path or URL is required (or set `spec` in the config)")
         spec_arg = args.spec
@@ -279,9 +396,7 @@ def main(argv: list[str] | None = None) -> None:
         from .http_client import set_logging
 
         set_logging(args.verbose, args.log_file)
-        auth = None
-        if args.auth_env:
-            auth = AuthConfig(args.auth_env, args.auth_style, args.auth_name)
+        auth = _resolve_auth(args)
         from .api_server import ApiServer
 
         try:
@@ -302,6 +417,16 @@ def main(argv: list[str] | None = None) -> None:
             retry_delay=args.retry_delay,
             response_format=args.format,
         )
+        if getattr(args, "http", None):
+            from .http_transport import parse_http_bind, serve_http
+
+            try:
+                host, port = parse_http_bind(args.http)
+            except ValueError as err:
+                _fail(f"--http {args.http}: {err}")
+            token = args.http_token or os.environ.get("MCPIFY_HTTP_TOKEN") or None
+            serve_http(server, host, port, token)
+            return
         sekil = "lazy surface (search + schema + call + health)" if args.lazy else f"{len(tools)} tools"
         ekstra = []
         if args.cache_ttl:
@@ -318,6 +443,40 @@ def main(argv: list[str] | None = None) -> None:
             file=sys.stderr,
         )
         server.serve()
+
+    elif args.command == "try":
+        from .http_client import set_logging
+
+        set_logging(args.verbose, getattr(args, "log_file", None))
+        auth = _resolve_auth(args)
+        from .api_server import ApiServer
+
+        try:
+            base = _base_url(spec, args.base_url)
+        except SpecError as err:
+            _fail(str(err))
+        server = ApiServer(
+            spec,
+            base,
+            server_name=args.name,
+            auth=auth,
+            timeout=args.timeout,
+            tools=tools,
+            lazy=args.lazy,
+            enable_preview=args.enable_preview,
+            cache_ttl=args.cache_ttl,
+            retry=args.retry,
+            retry_delay=args.retry_delay,
+            response_format=args.format,
+        )
+        print(
+            f"mcpify try [{args.name}]: {len(tools)} tools from {args.spec} -> {base} "
+            "(calls are REAL requests — same path an agent would take)",
+            file=sys.stderr,
+        )
+        from .repl import run as run_repl
+
+        run_repl(server)
 
     elif args.command == "init":
         if os.path.exists(args.config):

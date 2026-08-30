@@ -6,32 +6,40 @@ A map of the codebase for contributors and reviewers.
 
 ```
 mcpify/
-├── spec.py        # OpenAPI loading + $ref resolution + operation walking
-├── tools.py       # operation → MCP tool, argument → HTTP request, auth
-├── http_client.py # execution (urllib) + result formatting
-├── api_server.py  # MCP protocol server (stdio, JSON-RPC 2.0)
-└── cli.py         # list / serve / doctor commands
+├── spec.py          # OpenAPI loading + $ref resolution + operation walking
+├── tools.py         # operation → MCP tool, argument → HTTP request, auth
+├── http_client.py   # execution (urllib) + result formatting + OAuth2 flow
+├── api_server.py    # MCP server core: JSON-RPC dispatch, tools, policy
+├── http_transport.py# Streamable HTTP transport (--http) over the same core
+├── repl.py          # `mcpify try` interactive terminal REPL
+├── standalone.py    # `mcpify output-server` script generator
+└── cli.py           # list / serve / try / output-server / doctor / status / init
 ```
 
 Dependency direction is strictly one-way:
 
 ```
 cli → api_server → tools → spec
-                  → http_client
+     │            → http_client
+     ├── http_transport → api_server (handle_message only)
+     ├── repl → api_server
+     └── standalone → spec (validation only); the GENERATED script calls cli
 ```
 
 `spec` and `tools` are pure (no I/O except spec loading); `http_client` is
 the only module that touches the network; `api_server` is the only module
-that speaks MCP. This split is what makes the e2e tests fast and reliable
-(they boot a real `http.server` and drive the full protocol).
+that speaks MCP. `http_transport` and `repl` are thin drivers over
+`ApiServer.handle_message` — neither can see tool logic. This split is
+what makes the e2e tests fast and reliable (they boot real
+`http.server`s and drive the full protocol).
 
 ## Request lifecycle
 
 ```
-Agent (Claude/Cursor)
-   │  tools/call {name: "get_pet", arguments: {petId: 9}}
-   ▼
-api_server.handle_message()            JSON-RPC → dispatch
+Agent (Claude/Cursor)                  — entered from any driver:
+   │  tools/call {name: "get_pet", arguments: {petId: 9}}     stdio loop,
+   ▼                                                          HTTP POST,
+api_server.handle_message()            JSON-RPC → dispatch      `try` REPL
    ▼
 tools.build_request()                  arguments → {method, url, headers, body}
    │  - substitutes {petId} in the path template (URL-encoded)
@@ -73,6 +81,29 @@ core stays dependency-free while remaining spec-format pragmatic.
 Flattening body fields into top-level arguments collides with
 path/query names and produces ambiguous schemas. One `body` object is
 predictable, matches OpenAPI 1:1, and renders well in every MCP client.
+
+**6. Two transports, one core.**
+stdio and Streamable HTTP are thin loops that feed `handle_message()`.
+A transport never touches tool logic, and a tool never knows which
+transport invoked it — that is why `try`, the batch path, and both
+transports behave identically (and are tested identically).
+
+**7. HTTP responds JSON, never SSE.**
+A stateless server has nothing to push; the spec allows either media
+type. JSON keeps connections simple (no stream babysitting) and matches
+how gateways actually call stateless MCP servers.
+
+**8. OAuth2 is an execution concern.**
+Fetch/cache/invalidate lives in `http_client` next to `execute()`; the
+token never enters the tool layer. The 401 self-heal lives in
+`ApiServer._execute_real` so it applies to every tool with zero
+per-tool code. Credentials only ever exist as env-variable names until
+call time.
+
+**9. Generated scripts call the public CLI.**
+`output-server` embeds the spec bytes and replays `mcpify serve …`
+through `mcpify.cli.main` — no private-API coupling, so a generated
+script's behavior can never drift from the installed mcpify version.
 
 ## MCP surface
 
@@ -132,9 +163,11 @@ Three decisions shape v1.2.0:
 
 ## Scope statement
 
-mcpify is intentionally focused: one job (OpenAPI → MCP), one interface
-(a single CLI over stdio), zero runtime dependencies. Focused is a
-scope decision, not a size claim — the operational layer (config
-files, caching, retries, health, batch tolerance) exists to make that
-one job production-ready, and everything outside the job (gateways,
-GUIs, remote transports) is deliberately someone else's layer.
+mcpify is intentionally focused: one job (OpenAPI → MCP), one CLI, zero
+runtime dependencies. Focused is a scope decision, not a size claim —
+the operational layer (config files, caching, retries, health, batch
+tolerance) and the second transport (Streamable HTTP, stdlib-only)
+exist to make that one job production-ready *in both local and shared
+deployments*. Everything outside the job — API gateways, GUIs, OAuth2
+authorization-code flows, multi-API routing — is deliberately someone
+else's layer.

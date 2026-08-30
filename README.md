@@ -11,7 +11,7 @@ English | [Türkçe](README.tr.md)
   <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
 </p>
 
-[![Tests](https://img.shields.io/badge/tests-162%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-245%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
 [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/ci.yml)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-4A90D9)](server.json)
@@ -26,7 +26,7 @@ English | [Türkçe](README.tr.md)
 
 **Turn any OpenAPI REST API into an [MCP](https://modelcontextprotocol.io) server** — so Claude Code, Cursor, and every other MCP client can call your API directly.
 
-mcpify is **focused, production-ready, and CLI-first**: one job (OpenAPI → MCP), one interface (a single command over stdio), zero runtime dependencies. Focused doesn't mean small — 162 tests across eleven suites, dual MCP-spec compatibility, a policy layer, caching, safe retries, and health probes back that one job.
+mcpify is **focused, production-ready, and CLI-first**: one job (OpenAPI → MCP), zero runtime dependencies. Focused doesn't mean small — 245 tests across sixteen suites, two transports (stdio + HTTP), dual MCP-spec compatibility, OAuth2, a policy layer, caching, safe retries, and health probes back that one job.
 
 
 Your company has a REST API. Your AI agent needs to call it. Until now that
@@ -55,6 +55,18 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   APIs: `--deny REGEX` hides mutating GETs, `--allow REGEX` re-includes
   read-style POST endpoints. Deny always wins.
 - **`mcpify doctor`** — tells you if your spec is agent-friendly before you ship
+- **Two transports, one tool surface.** `serve` speaks stdio to local
+  agents; `serve --http 8080` speaks MCP Streamable HTTP so a whole team
+  (or a gateway) can share one server — optional bearer token with
+  `--http-token`, stateless per the current MCP spec
+- **OAuth2 client-credentials built in** — point it at your identity
+  provider's token endpoint; tokens are fetched, cached, refreshed, and
+  re-fetched automatically on a mid-flight 401 (RFC 6749, stdlib only)
+- **`mcpify try`** — an interactive terminal REPL to call the generated
+  tools without any agent client: pick a tool, fill the arguments, see the
+  real response. Same execution path as MCP `tools/call`
+- **`mcpify output-server`** — bake a serve command into a small shareable
+  script: teammates run `python3 server.py` and get the identical MCP server
 - **Operational, not just functional.** `mcpify init` wizard + `.mcpify.toml`
   configs with per-environment sections, GET response caching (`--cache-ttl`),
   safe retries (`--retry` — idempotent methods only, 502/503/504 only),
@@ -68,8 +80,8 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   `outputSchema`/`structuredContent`, remediation-grade errors that teach the
   next call, dry-run request previews, and a `--lazy` search-then-call mode
   that cut api.weather.gov's listing by **95.5%** (38,882 → 1,741 chars)
-- **162 tests across eleven suites** — including a full MCP protocol run
-  over stdio against a real local HTTP API and the **live
+- **245 tests across sixteen suites** — including full MCP protocol runs
+  over stdio *and* over HTTP against real local APIs and the **live
   api.weather.gov document** (69 tools, 16 enum'd parameters)
 
 ## Quick start
@@ -99,6 +111,12 @@ mcpify doctor examples/petstore.json
 
 # 3. serve it over MCP
 mcpify serve examples/petstore.json --base-url https://petstore.example.com/v1
+
+# 4. no agent client at hand? try the tools in your terminal
+mcpify try examples/petstore.json --base-url https://petstore.example.com/v1
+
+# 5. or share it over HTTP with the whole team
+mcpify serve examples/petstore.json --http 8080 --http-token $SHARED_TOKEN
 ```
 
 ### With authentication
@@ -119,6 +137,23 @@ mcpify serve petstore.json \
 | `--auth-style bearer\|header\|query` | how it is sent |
 | `--auth-name NAME` | header / query name for non-bearer styles (e.g. `X-API-Key`) |
 
+### With OAuth2 (client credentials)
+
+For APIs behind an OAuth2 identity provider (RFC 6749 §4.4). Credentials
+live in the environment; the access token is fetched, cached until its
+`expires_in`, refreshed transparently, and re-fetched automatically once
+if the API answers 401 mid-flight:
+
+```bash
+export OAUTH2_CLIENT_ID="..."
+export OAUTH2_CLIENT_SECRET="..."
+mcpify serve api.json \
+  --oauth2-token-url https://idp.example.com/oauth2/token \
+  --oauth2-client-id-env OAUTH2_CLIENT_ID \
+  --oauth2-client-secret-env OAUTH2_CLIENT_SECRET \
+  --oauth2-scope "read write"        # optional; --oauth2-client-auth body for token endpoints that reject Basic
+```
+
 ## Plug it into your agent
 
 **Claude Code:**
@@ -135,6 +170,20 @@ claude mcp add my-api -- mcpify serve openapi.json --read-only
     "petstore": {
       "command": "mcpify",
       "args": ["serve", "~/specs/petstore.json", "--auth-env", "PETSTORE_KEY"]
+    }
+  }
+}
+```
+
+**HTTP transport (team-shared server)** — run `mcpify serve api.json --http 0.0.0.0:8080 --http-token $TOKEN` once, then point HTTP-capable clients at it:
+
+```json
+{
+  "mcpServers": {
+    "petstore": {
+      "type": "http",
+      "url": "http://your-host:8080",
+      "headers": { "Authorization": "Bearer <token>" }
     }
   }
 }
@@ -177,7 +226,12 @@ warning: 30/41 operations have no summary (agents see no description)
 mcpify list <spec> [--tag T] [--include P] [--exclude P] [--read-only] [--json]
 mcpify serve <spec> [--base-url URL] [--name N] [--auth-env VAR]
                     [--auth-style bearer|header|query] [--auth-name NAME]
-                    [--timeout S] [--read-only] [--tag T] [--include P] [--exclude P]
+                    [--oauth2-token-url URL --oauth2-client-id-env VAR
+                     --oauth2-client-secret-env VAR] [--timeout S]
+                    [--read-only] [--tag T] [--include P] [--exclude P]
+                    [--http [HOST:]PORT] [--http-token TOKEN]
+mcpify try <spec> [same serve flags]        # interactive REPL, no agent needed
+mcpify output-server <spec> -o FILE [-- <any serve flags>]
 mcpify doctor <spec>
 ```
 
@@ -186,6 +240,7 @@ mcpify doctor <spec>
 - JSON specs work out of the box; YAML specs need `pip install 'mcpify[yaml]'`
 - Only local `$ref` pointers are resolved (bundle external docs first — most tools do anyway)
 - Request bodies are exposed as a single `body` object argument — predictable over clever
+- HTTP transport serves one JSON-RPC message per request (batching was removed from the MCP spec) and responds `application/json` — a stateless server has nothing to stream
 - Spec versions: OpenAPI 3.x and Swagger 2.x roots are accepted; 3.x is the happy path
 
 ## Hardened against the real world
@@ -210,7 +265,7 @@ Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHEC
 
 ## Tests
 
-**162 passing**, plus one live-integration test that loads the real
+**245 passing**, plus one live-integration test that loads the real
 api.weather.gov document (auto-skipped when offline). Every suite runs on
 Python 3.10–3.12 across Linux and Windows; `ruff`, strict `mypy` and
 CodeQL gate every push.
@@ -228,6 +283,11 @@ CodeQL gate every push.
 | `$ref` parameters | 4 | parameter schemas resolved against the full spec — the weather.gov bug class (one test hits the live document) |
 | Ops & configuration | 41 | config files + env precedence, init wizard, cache TTL & bounds, retry safety, XML conversion, discovery, batching, status/health |
 | Protocol version compat | 5 | 2026-07-28 stateless `_meta` requests and the legacy 2025-06-18 handshake, on the same wire |
+| HTTP transport | 19 | Streamable HTTP: lifecycle over POST, 405/411/413/415 error ladder, parse/batch rejections, bearer enforcement, bind-string parser |
+| OAuth2 client-credentials | 18 | token fetch/cache/refresh with a fake clock, Basic vs body client auth, public clients, every failure mode, 401 self-heal end-to-end |
+| `try` REPL | 26 | piped-stdin sessions: selection by number/name, typed prompts, re-prompt on bad input, `:raw`/`:info`, clean EOF/Ctrl+C exits, read-only surface |
+| `output-server` | 10 | embedded spec integrity, guard rails (existing file, bad spec, unknown flags), secret warnings, and a real subprocess E2E handshake |
+| CLI connectivity glue | 10 | `--http` wiring, `MCPIFY_HTTP_TOKEN` fallback, OAuth2 flag rules, config-file keys, wizard option 5, `try` smoke test |
 
 Policy on failures: every bug found in the wild becomes a pinned
 regression test before the fix ships — the suite only grows.
@@ -244,20 +304,23 @@ pytest -v
 ```
 mcpify/
 ├── mcpify/
-│   ├── spec.py        # OpenAPI loading, $ref resolution, operation walking
-│   ├── tools.py       # operation -> MCP tool, argument -> HTTP request
-│   ├── http_client.py # execution (urllib, HTTP errors become tool results)
-│   ├── api_server.py  # MCP stdio server (JSON-RPC 2.0)
-│   └── cli.py         # list / serve / doctor
+│   ├── spec.py          # OpenAPI loading, $ref resolution, operation walking
+│   ├── tools.py         # operation -> MCP tool, argument -> HTTP request
+│   ├── http_client.py   # execution (urllib, HTTP errors become tool results), OAuth2 flow
+│   ├── api_server.py    # the MCP server core (JSON-RPC 2.0, tools, policy)
+│   ├── http_transport.py# Streamable HTTP transport (--http)
+│   ├── repl.py          # `mcpify try` interactive terminal REPL
+│   ├── standalone.py    # `mcpify output-server` script generator
+│   └── cli.py           # list / serve / try / output-server / doctor / status / init
 ├── examples/petstore.json
 └── tests/
 ```
 
 ## Roadmap
 
-- [ ] `--output-server FILE` — generate a standalone, shareable server script
-- [ ] Per-operation rate limiting
-- [ ] OAuth2 client-credentials flow
+- [ ] SSE streaming responses for the HTTP transport (server-initiated messages)
+- [ ] Multi-API aggregation: one `serve` process fronting several OpenAPI documents
+- [x] ~~HTTP transport~~, ~~OAuth2 client-credentials~~, ~~`mcpify try` REPL~~, ~~`--output-server`~~ — shipped in v1.6.0
 
 ## License
 
