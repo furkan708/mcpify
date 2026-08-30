@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
 from . import __version__
-from .config import apply_to_namespace, load_config, resolve, validate
+from .config import api_sections, apply_to_namespace, load_config, resolve, validate
+from .http_client import ResponseCache
 from .spec import SpecError, discover_spec, iter_operations, load_spec, spec_servers
 from .tools import AuthConfig, spec_to_tools
 
@@ -207,6 +208,80 @@ def _add_serve_options(p: argparse.ArgumentParser, with_http: bool) -> None:
                        "(falls back to MCPIFY_HTTP_TOKEN)")
 
 
+def _build_entries(args: argparse.Namespace, data: dict) -> list[dict]:
+    """Expand [apis.NAME] config sections into execution entries.
+
+    Precedence per key: CLI flags > [apis.NAME] > [serve] > defaults —
+    implemented by starting each API from the resolved [serve] settings,
+    overlaying its section, and letting apply_to_namespace fill only the
+    CLI attrs still at their default. Every execution knob lives on the
+    entry so the aggregator can route without touching globals."""
+
+    from .spec import SpecError, load_spec
+    from .tools import spec_to_tools
+
+    sections = api_sections(data)
+    if getattr(args, "spec", None):
+        _fail("pass either a positional spec or [apis.*] sections, not both")
+    serve_settings = resolve(data, getattr(args, "env", None))
+    serve_settings.pop("_env", None)
+
+    entries: list[dict] = []
+    for label, section in sections.items():
+        settings = dict(serve_settings)
+        settings.update(section if isinstance(section, dict) else {})
+        ns = argparse.Namespace(**vars(args))
+        ns.spec = None
+        # smaller parsers (status) lack serve-only attrs; fill safe defaults
+        for attr, default in (
+            ("read_only", False), ("tag", None), ("include", None), ("exclude", None),
+            ("allow", None), ("deny", None), ("strict", False), ("base_url", None),
+            ("server", None), ("auth_env", None), ("auth_style", None), ("auth_name", None),
+            ("oauth2_token_url", None), ("oauth2_client_id_env", None),
+            ("oauth2_client_secret_env", None), ("oauth2_scope", None),
+            ("oauth2_client_auth", "basic"), ("timeout", 30.0), ("cache_ttl", 0.0),
+            ("retry", 0), ("retry_delay", 1.0), ("wait_on_429", 0.0),
+        ):
+            if not hasattr(ns, attr):
+                setattr(ns, attr, default)
+        apply_to_namespace(settings, ns)
+        if not ns.spec:
+            _fail(f"apis.{label}: missing required 'spec'")
+        try:
+            spec = load_spec(ns.spec)
+        except SpecError as err:
+            _fail(f"apis.{label}: {err}")
+        tools = filter_tools(spec_to_tools(spec, strict=bool(ns.strict)), ns)
+        if not tools:
+            _fail(f"apis.{label}: no operations matched (0 tools)")
+        try:
+            base = _base_url(spec, ns.base_url, ns.server)
+        except SpecError as err:
+            _fail(f"apis.{label}: {err}")
+        auth = _resolve_auth(ns, spec)
+        if auth is None:
+            hint = _auth_hint(spec)
+            if hint:
+                print(
+                    f"note: [apis.{label}] declares authentication but no "
+                    f"credential is configured — add {hint}",
+                    file=sys.stderr,
+                )
+        entries.append({
+            "label": label,
+            "spec": spec,
+            "base": base,
+            "auth": auth,
+            "timeout": float(ns.timeout),
+            "cache": ResponseCache(ns.cache_ttl) if ns.cache_ttl and ns.cache_ttl > 0 else None,
+            "retry": int(ns.retry or 0),
+            "retry_delay": float(ns.retry_delay),
+            "wait_on_429": float(getattr(ns, "wait_on_429", 0.0) or 0.0),
+            "tools": tools,
+        })
+    return entries
+
+
 def _auth_hint(spec: dict | None) -> str | None:
     """Exact, copy-pasteable serve flags for the spec's declared auth."""
     if spec is None:
@@ -385,22 +460,27 @@ def main(argv: list[str] | None = None) -> None:
     tools: list[dict] = []  # status computes its own count
 
     config_path = None
+    config_data: dict = {}
     if args.command in ("serve", "status", "try"):
         try:
-            config_path, data = load_config(getattr(args, "config", None))
+            config_path, config_data = load_config(getattr(args, "config", None))
             if config_path is not None:
-                for problem in validate(data):
+                for problem in validate(config_data):
                     print(f"config warning: {problem}", file=sys.stderr)
-                settings = resolve(data, args.env)
+                settings = resolve(config_data, args.env)
                 apply_to_namespace(settings, args)
-                if settings.get("spec") and getattr(args, "spec", None) is None:
+                if not api_sections(config_data) and settings.get("spec") and getattr(args, "spec", None) is None:
                     args.spec = settings["spec"]
                 tag = f" (env: {settings['_env']})" if settings.get("_env") else ""
                 print(f"config: {config_path}{tag}", file=sys.stderr)
         except ValueError as err:
             _fail(str(err))
 
-    if args.command in ("list", "serve", "try"):
+    entries: list[dict] | None = None
+    if args.command in ("serve", "try") and api_sections(config_data):
+        entries = _build_entries(args, config_data)
+
+    if args.command in ("list", "serve", "try") and entries is None:
         if getattr(args, "spec", None) is None:
             _fail("a spec path or URL is required (or set `spec` in the config)")
         spec_arg = args.spec
@@ -466,6 +546,37 @@ def main(argv: list[str] | None = None) -> None:
         print(dim("─" * 78))
         print(dim(f"serve it: mcpify serve {args.spec}"))
 
+    elif args.command == "serve" and entries is not None:
+        from .http_client import set_logging
+
+        set_logging(args.verbose, args.log_file)
+        from .aggregate import AggregatedServer
+
+        agg_server = AggregatedServer(
+            entries,
+            server_name=args.name,
+            lazy=args.lazy,
+            enable_preview=args.enable_preview,
+            response_format=args.format,
+        )
+        if getattr(args, "http", None):
+            from .http_transport import parse_http_bind, serve_http
+
+            try:
+                host, port = parse_http_bind(args.http)
+            except ValueError as err:
+                _fail(f"--http {args.http}: {err}")
+            token = args.http_token or os.environ.get("MCPIFY_HTTP_TOKEN") or None
+            serve_http(agg_server, host, port, token)
+            return
+        labels = ", ".join(entry["label"] for entry in entries)
+        print(
+            f"mcpify: serving {len(entries)} APIs ({len(agg_server.tools)} tools): {labels}"
+            " — agents see one tool surface",
+            file=sys.stderr,
+        )
+        agg_server.serve()
+
     elif args.command == "serve":
         from .http_client import set_logging
 
@@ -528,6 +639,28 @@ def main(argv: list[str] | None = None) -> None:
             file=sys.stderr,
         )
         server.serve()
+
+    elif args.command == "try" and entries is not None:
+        from .http_client import set_logging
+
+        set_logging(args.verbose, getattr(args, "log_file", None))
+        from .aggregate import AggregatedServer
+
+        agg_server = AggregatedServer(
+            entries,
+            server_name=args.name,
+            lazy=args.lazy,
+            enable_preview=args.enable_preview,
+            response_format=args.format,
+        )
+        print(
+            f"mcpify try [{args.name}]: {len(entries)} APIs, {len(agg_server.tools)} tools "
+            "(calls are REAL requests — same path an agent would take)",
+            file=sys.stderr,
+        )
+        from .repl import run as run_repl
+
+        run_repl(agg_server)
 
     elif args.command == "try":
         from .http_client import set_logging
@@ -599,6 +732,37 @@ def main(argv: list[str] | None = None) -> None:
         Path(args.config).write_text(build_config_document(ayarlar), encoding="utf-8")
         print(f"wrote {args.config}")
         print(f"next: mcpify serve --config {args.config}   (or just: mcpify serve)")
+
+    elif args.command == "status" and api_sections(config_data):
+        entries = _build_entries(args, config_data)
+        from .http_client import execute as _execute
+
+        results = []
+        for entry in entries:
+            started = time.monotonic()
+            sonuc = _execute(
+                {"method": "GET", "url": entry["base"].rstrip("/") + "/",
+                 "headers": {"Accept": "application/json"}, "body": None},
+                timeout=float(getattr(args, "timeout", 10.0) or 10.0),
+            )
+            results.append({
+                "api": entry["label"],
+                "base_url": entry["base"],
+                "api_reachable": sonuc["status"] != 0,
+                "api_status": sonuc["status"],
+                "latency_seconds": round(time.monotonic() - started, 3),
+                "tools": len(entry["tools"]),
+            })
+        rapor = {"apis": results, "all_reachable": all(r["api_reachable"] for r in results),
+                 "version": __version__}
+        if args.json:
+            print(json.dumps(rapor, ensure_ascii=False, indent=2))
+        else:
+            for r in results:
+                durum = "reachable" if r["api_reachable"] else "UNREACHABLE"
+                print(f"[{r['api']}] {durum} (status {r['api_status']}, "
+                      f"{r['latency_seconds']:.2f}s) — {r['base_url']} — {r['tools']} tools")
+        sys.exit(0 if rapor["all_reachable"] else 2)
 
     elif args.command == "status":
         if getattr(args, "spec", None) is None:

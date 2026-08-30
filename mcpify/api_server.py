@@ -223,34 +223,56 @@ class ApiServer:
             )
         return self._execute_real(tool, arguments)
 
-    def _execute_real(self, tool: dict, arguments: dict) -> dict:
-        request = build_request(self.base_url, tool["_meta"], arguments, self.auth)
-        if self.auth is not None:
-            request["url"] = self.auth.apply_query(request["url"])
+    def _context_for(self, tool: dict) -> dict:
+        """Execution context for one tool: base URL, auth and tuning.
+
+        A plain ApiServer has exactly one context (its own); the
+        aggregator overrides this to route each tool to the API that
+        owns it. Every execution path (_execute_real, preview) goes
+        through here, so per-API auth/cache/retry can never be bypassed."""
+        return {
+            "base": self.base_url,
+            "auth": self.auth,
+            "timeout": self.timeout,
+            "cache": self.cache,
+            "retry": self.retry,
+            "retry_delay": self.retry_delay,
+            "wait_on_429": self.wait_on_429,
+        }
+
+    def _send(self, tool: dict, arguments: dict, context: dict) -> dict:
+        auth = context["auth"]
+        request = build_request(context["base"], tool["_meta"], arguments, auth)
+        if auth is not None:
+            request["url"] = auth.apply_query(request["url"])
         result = execute(
             request,
-            timeout=self.timeout,
-            cache=self.cache,
-            retry=self.retry,
-            retry_delay=self.retry_delay,
-            wait_on_429=self.wait_on_429,
+            timeout=context["timeout"],
+            cache=context["cache"],
+            retry=context["retry"],
+            retry_delay=context["retry_delay"],
+            wait_on_429=context["wait_on_429"],
         )
         # OAuth2 self-heal: a token that expired server-side (or was
         # revoked mid-flight) surfaces as 401 once. Drop the cached
         # token, rebuild the request with a fresh one, and retry a
         # single time — a second 401 is a real authorization problem
         # and is reported as such.
-        if result["status"] == 401 and isinstance(self.auth, OAuth2ClientCredentials):
-            self.auth.invalidate()
-            request = build_request(self.base_url, tool["_meta"], arguments, self.auth)
+        if result["status"] == 401 and isinstance(auth, OAuth2ClientCredentials):
+            auth.invalidate()
+            request = build_request(context["base"], tool["_meta"], arguments, auth)
             result = execute(
                 request,
-                timeout=self.timeout,
-                cache=self.cache,
-                retry=self.retry,
-                retry_delay=self.retry_delay,
-                wait_on_429=self.wait_on_429,
+                timeout=context["timeout"],
+                cache=context["cache"],
+                retry=context["retry"],
+                retry_delay=context["retry_delay"],
+                wait_on_429=context["wait_on_429"],
             )
+        return result
+
+    def _execute_real(self, tool: dict, arguments: dict) -> dict:
+        result = self._send(tool, arguments, self._context_for(tool))
         return self._payload_for(tool, result)
 
     def _payload_for(self, tool: dict, result: dict) -> dict:
@@ -336,7 +358,8 @@ class ApiServer:
         """Deterministic keyword score: every token must match somewhere."""
         meta = tool["_meta"]
         haystack = " ".join(
-            [tool["name"], meta["path"], tool["description"], " ".join(meta["tags"])]
+            [tool["name"], meta["path"], tool["description"], " ".join(meta["tags"]),
+             str(tool.get("api", ""))]
         ).lower()
         tokens = [t for t in re.split(r"[^a-z0-9]+", query.lower()) if t]
         if not tokens:
@@ -413,21 +436,22 @@ class ApiServer:
         return self._execute_real(tool, inner)
 
     # -- preview (dry run) -------------------------------------------------
-    def _mask_request(self, request: dict) -> dict:
+    def _mask_request(self, request: dict, auth: AuthConfig | OAuth2ClientCredentials | None = None) -> dict:
+        auth = auth if auth is not None else self.auth
         headers: dict = {}
         for key, value in request["headers"].items():
             if key.lower() == "authorization":
                 scheme = value.split(" ", 1)[0]
                 headers[key] = f"{scheme} ***"
-            elif isinstance(self.auth, AuthConfig) and self.auth.style == "header" and key == (
-                self.auth.name or "X-API-Key"
+            elif isinstance(auth, AuthConfig) and auth.style == "header" and key == (
+                auth.name or "X-API-Key"
             ):
                 headers[key] = "***"
             else:
                 headers[key] = value
         url = request["url"]
-        if isinstance(self.auth, AuthConfig) and self.auth.style == "query":
-            name = self.auth.name or "api_key"
+        if isinstance(auth, AuthConfig) and auth.style == "query":
+            name = auth.name or "api_key"
             url = re.sub(rf"([?&]{re.escape(name)}=)[^&]*", r"\1***", url)
         return {**request, "headers": headers, "url": url}
 
@@ -436,10 +460,11 @@ class ApiServer:
         inner = arguments.get("arguments") or {}
         if not isinstance(inner, dict):
             raise RequestError("'arguments' must be an object")
-        request = build_request(self.base_url, tool["_meta"], inner, self.auth)
-        if self.auth is not None:
-            request["url"] = self.auth.apply_query(request["url"])
-        masked = self._mask_request(request)
+        context = self._context_for(tool)
+        request = build_request(context["base"], tool["_meta"], inner, context["auth"])
+        if context["auth"] is not None:
+            request["url"] = context["auth"].apply_query(request["url"])
+        masked = self._mask_request(request, context["auth"])
         lines = [f"{masked['method']} {masked['url']}"]
         for key, value in masked["headers"].items():
             lines.append(f"{key}: {value}")

@@ -16,6 +16,7 @@ deployment, troubleshooting, and frequently asked questions.
 9. [HTTP transport: serve a team](#9-http-transport-serve-a-team)
 10. [Trying tools without an agent (`mcpify try`)](#10-trying-tools-without-an-agent-mcpify-try)
 11. [Sharing a preconfigured server (`mcpify output-server`)](#11-sharing-a-preconfigured-server-mcpify-output-server)
+12. [Multi-API aggregation: one server, several APIs](#12-multi-api-aggregation-one-server-several-apis)
 
 ---
 
@@ -453,6 +454,9 @@ mcpify serve --env prod     # flags > [envs.prod] > [serve] > defaults
 Unknown keys are reported as warnings (typos never vanish silently).
 Every setting maps 1:1 to a CLI flag; flags always win.
 
+Multiple APIs in one process? See §12 — `[apis.NAME]` sections give
+each document its own credential, policy and filters.
+
 ## `mcpify init` — setup wizard
 
 ```bash
@@ -611,6 +615,59 @@ The current MCP spec removed JSON-RPC batching, but some gateways still
 send arrays. mcpify accepts a JSON array on one stdio line, processes
 notifications in order, and runs same-batch `tools/call` entries
 concurrently (thread pool, locked cache).
+
+## 12. Multi-API aggregation: one server, several APIs
+
+`[apis.NAME]` sections turn one `mcpify serve` process into a front for
+multiple OpenAPI documents. Every API keeps its own credential, policy,
+caching and retry settings; the model sees one merged tool surface.
+
+```toml
+# .mcpify.toml
+[apis.catalog]
+spec = "https://shop.example.com/openapi.json"
+auth-env = "CATALOG_TOKEN"
+cache-ttl = 60
+
+[apis.crm]
+spec = "./crm.yaml"
+read-only = true
+base-url = "https://crm.internal/v2"
+
+[apis.weather]
+spec = "https://api.weather.gov/openapi.json"
+timeout = 10
+```
+
+```bash
+mcpify serve              # stdio: one tool surface, every API
+mcpify serve --http 8080  # or one HTTP endpoint for the whole team
+mcpify try                # REPL across every API
+mcpify status             # probes each API concurrently
+```
+
+Rules that make this safe:
+
+- **Naming:** tools keep their names unless two APIs collide — then
+  *both* sides get the label prefix (`catalog_list_pets`,
+  `crm_list_pets`). Non-conflicting names are never touched, and a name
+  that matches a built-in `mcpify_*` tool is reserved.
+- **Routing:** each call executes against its owning API with that
+  API's auth, cache, retry and filter settings. A `read-only` section
+  doesn't leak into other APIs.
+- **Env selection:** `--env prod` (or `default-env`) still applies —
+  `[envs.*]` sits on the `[serve]` layer, so every API inherits it
+  unless its own section overrides a key.
+- **Precedence per key:** CLI flags > `[apis.NAME]` > `[serve]` >
+  defaults. Surface switches (`--lazy`, `--enable-preview`, `--http`,
+  `--format`, `--verbose`) are server-wide and only read from CLI /
+  `[serve]`.
+- **Status & health:** `mcpify status` prints one line per API and
+  exits 2 if any is unreachable; the `mcpify_health` tool returns a
+  combined report (`apis: [...]`, `all_reachable`, dead-API hint).
+- **Either/or:** pass a positional spec *or* `[apis.*]` sections —
+  mcpify rejects the combination with a clear error instead of
+  guessing which wins.
 
 ## Health & status
 

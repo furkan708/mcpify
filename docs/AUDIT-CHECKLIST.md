@@ -82,11 +82,13 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
 - ✅ Unknown tool → `-32601`; unknown arguments → clear tool error
 - ✅ Startup validation: bad specs, relative URLs, default-less server
   variables fail fast with actionable messages
-- ⛔ Retry / rate-limit / circuit-breaker: deliberate omissions —
-  non-idempotent retries belong at the gateway (rationale in USAGE.md)
+- ✅ Retries (502/503/504, idempotent methods only), opt-in 429
+  Retry-After courtesy, per-API in aggregation
+- ⛔ Circuit-breaker / adaptive throttling: deliberate omission —
+  belongs above this layer (rationale in USAGE.md)
 
 ## 10. Test & validation
-- ✅ **294 passing tests across eighteen suites** (295 collected; one
+- ✅ **317 passing tests across nineteen suites** (318 collected; one
   live-integration test auto-skips offline) — full matrix in the README
 - ✅ Quality gates on every push: ruff, mypy `strict`, CodeQL,
   Python 3.10–3.12 × Linux + Windows
@@ -105,6 +107,10 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
 - ✅ OAuth2 client-credentials exercised end-to-end against real local
   token/API servers: fetch, cache, expiry (fake clock), public clients,
   every failure mode, and the one-shot 401 self-heal
+- ✅ Multi-API aggregation pinned end-to-end against real local APIs:
+  merge/rename rules, per-API auth & cache isolation, concurrent health
+  probes (dead API named in the hint), lazy search across APIs, status
+  exit codes, and the reject-both-inputs guard
 
 ---
-*Audited 2026-08-30 against v1.8.0. Re-run on every release.*
+*Audited 2026-08-30 against v1.9.0. Re-run on every release.*

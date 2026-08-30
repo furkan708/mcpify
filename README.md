@@ -11,7 +11,7 @@ English | [Türkçe](README.tr.md)
   <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
 </p>
 
-[![Tests](https://img.shields.io/badge/tests-294%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-317%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
 [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/ci.yml)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-4A90D9)](server.json)
@@ -70,6 +70,12 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   HTTP basic, header or query with the right name); secured specs with
   no credential print the exact flags to run. Rate-limited APIs can be
   honored too: `--wait-on-429` waits out `Retry-After` once, within a cap
+- **Several APIs, one MCP server** — list multiple OpenAPI documents as
+  `[apis.NAME]` sections in `.mcpify.toml` and one `serve` process fronts
+  them all: a single tool surface with per-API auth, caching, retries and
+  filters, automatic renames when two APIs ship the same tool name, an
+  aggregated health report, and `mcpify status` that probes every API in
+  parallel. The feature hosted gateways bill for, in a config file
 - **Host it yourself for free** — `deploy/docker-compose.yml` (with
   automatic-HTTPS Caddy) and a hardened systemd unit turn a $5 VPS into
   what hosted-MCP plans bill $9–$229/month for: [Self-hosting guide](docs/SELF-HOSTING.md)
@@ -91,7 +97,7 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   `outputSchema`/`structuredContent`, remediation-grade errors that teach the
   next call, dry-run request previews, and a `--lazy` search-then-call mode
   that cut api.weather.gov's listing by **95.5%** (38,882 → 1,741 chars)
-- **294 tests across eighteen suites** — including full MCP protocol runs
+- **317 tests across nineteen suites** — including full MCP protocol runs
   over stdio *and* over HTTP against real local APIs and the **live
   api.weather.gov document** (69 tools, 16 enum'd parameters)
 
@@ -169,6 +175,47 @@ mcpify serve api.json \
   --oauth2-client-secret-env OAUTH2_CLIENT_SECRET \
   --oauth2-scope "read write"        # optional; --oauth2-client-auth body for token endpoints that reject Basic
 ```
+
+### Multiple APIs in one server
+
+Put several OpenAPI documents in one config and serve them as a single
+tool surface — no gateway, no per-API process:
+
+```toml
+# .mcpify.toml
+[apis.catalog]
+spec = "https://shop.example.com/openapi.json"
+auth-env = "CATALOG_TOKEN"          # per-API credential
+cache-ttl = 60
+
+[apis.crm]
+spec = "./crm.yaml"
+read-only = true                    # per-API policy
+base-url = "https://crm.internal/v2"
+
+[apis.weather]
+spec = "https://api.weather.gov/openapi.json"
+timeout = 10
+```
+
+Surface switches (`--lazy`, `--enable-preview`, `--http`, `--format`) are
+server-wide flags; credentials, policies, caching and retries are per-API.
+
+```bash
+mcpify serve            # stdio, all three APIs, prefixed on collisions
+mcpify serve --http 8080
+mcpify try              # REPL across every API
+mcpify status           # probes each API concurrently
+```
+
+`mcpify status` reports per API — `[catalog] reachable (status 200, 0.03s)
+— https://shop.example.com — 31 tools` — and exits non-zero if any API is
+unreachable. When two APIs expose the same tool name (`list_pets`), both
+get renamed with their label (`catalog_list_pets`, `crm_list_pets`) so
+nothing silently wins; non-conflicting names stay untouched. The
+`mcpify_health` tool returns one report covering every API. Precedence
+per key: CLI flags > `[apis.NAME]` > `[serve]`. Pass a positional spec
+*or* `[apis.*]` sections — never both.
 
 ## Plug it into your agent
 
@@ -249,6 +296,9 @@ mcpify serve <spec> [--base-url URL] [--server INDEX|NAME] [--name N] [--auth-en
 mcpify try <spec> [same serve flags]        # interactive REPL, no agent needed
 mcpify output-server <spec> -o FILE [-- <any serve flags>]
 mcpify doctor <spec>
+
+# multi-API: define [apis.NAME] sections in .mcpify.toml, then run
+#   mcpify serve|try|status   (no positional spec) — one process, every API
 ```
 
 ### Notes & limitations
@@ -281,7 +331,7 @@ Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHEC
 
 ## Tests
 
-**294 passing**, plus one live-integration test that loads the real
+**317 passing**, plus one live-integration test that loads the real
 api.weather.gov document (auto-skipped when offline). Every suite runs on
 Python 3.10–3.12 across Linux and Windows; `ruff`, strict `mypy` and
 CodeQL gate every push.
@@ -306,6 +356,7 @@ CodeQL gate every push.
 | Server selection | 17 | `--server INDEX|NAME` rules: index, description/URL name matching, error listings, `--base-url` precedence, server-variable defaults, CLI/status/config/doctor wiring |
 | Auth auto-detection & Basic | 22 | securitySchemes → style/name resolution (OpenAPI + Swagger 2.0), requirement-order precedence, operation-level security, exact hint text, HTTP Basic header encoding, CLI/try/doctor wiring, explicit-style override |
 | Rate-limit courtesy (`--wait-on-429`) | 9 | Retry-After honored once within cap, cap exceeded returns 429 untouched, missing header falls back to retry delay, HTTP-date form never waits, POST never auto-waited, CLI wiring |
+| Multi-API aggregation | 23 | `[apis.*]` merge with two-sided collision prefixes and `_2` suffixes, per-API routing/auth/cache isolation, concurrent aggregated health (dead-API named in hint), lazy search across APIs incl. label match, preview routing, status exit codes, `--env` inheritance, both-rejected flag combos |
 | CLI connectivity glue | 10 | `--http` wiring, `MCPIFY_HTTP_TOKEN` fallback, OAuth2 flag rules, config-file keys, wizard option 5, `try` smoke test |
 
 Policy on failures: every bug found in the wild becomes a pinned
@@ -327,6 +378,7 @@ mcpify/
 │   ├── tools.py         # operation -> MCP tool, argument -> HTTP request
 │   ├── http_client.py   # execution (urllib, HTTP errors become tool results), OAuth2 flow
 │   ├── api_server.py    # the MCP server core (JSON-RPC 2.0, tools, policy)
+│   ├── aggregate.py     # multi-API composition ([apis.*] -> one tool surface)
 │   ├── http_transport.py# Streamable HTTP transport (--http)
 │   ├── repl.py          # `mcpify try` interactive terminal REPL
 │   ├── standalone.py    # `mcpify output-server` script generator
@@ -338,7 +390,7 @@ mcpify/
 ## Roadmap
 
 - [ ] SSE streaming responses for the HTTP transport (server-initiated messages)
-- [ ] Multi-API aggregation: one `serve` process fronting several OpenAPI documents
+- [x] ~~Multi-API aggregation: one `serve` process fronting several OpenAPI documents~~ — shipped in v1.9.0
 - [x] ~~HTTP transport~~, ~~OAuth2 client-credentials~~, ~~`mcpify try` REPL~~, ~~`--output-server`~~ — shipped in v1.6.0
 
 ## License

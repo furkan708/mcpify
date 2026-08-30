@@ -6,6 +6,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-08-30
+
+### Added — multi-API aggregation, the gateway feature, for free
+- **`[apis.NAME]` config sections:** list multiple OpenAPI documents
+  (local files or URLs) in `.mcpify.toml` and a single
+  `mcpify serve` process fronts them all as one MCP tool surface —
+  stdio, HTTP, or both readers of `mcpify try`. The composition layer
+  hosted gateways bill $9–$229/month for, in a config file.
+- **Per-API everything:** credentials (`auth-env`, OAuth2), policies
+  (`read-only`, `include`/`exclude`/`tag`, `allow`/`deny`), caching,
+  retries and timeouts are resolved per API with precedence
+  CLI > `[apis.NAME]` > `[serve]` > defaults. One API's `read-only`
+  never leaks into another's tools.
+- **Collision-safe naming:** when two APIs expose the same tool name,
+  both sides are renamed with their label (`catalog_list_pets`,
+  `crm_list_pets`) — nothing silently wins; non-conflicting names stay
+  untouched and built-in `mcpify_*` names are reserved.
+- **Aggregated health:** `mcpify_health` probes every API concurrently
+  (up to 8 at once) and returns one report with per-API status and
+  latency; unreachable APIs are named in a remediation hint and the
+  tool call surfaces an error. `mcpify status` prints one line per API
+  and exits 2 if any is down; `--json` gives the machine-readable form.
+- **`mcpify try` and `--env` work across the whole surface:** the REPL
+  banner shows the API/tool counts, `--env staging` (or `default-env`)
+  applies to every API from the `[serve]` layer, and passing a
+  positional spec together with `[apis.*]` sections is rejected with a
+  clear error instead of a silent precedence surprise.
+- 23 new tests (317 total, nineteen suites): merge/rename rules,
+  per-API auth & cache isolation, lazy search across APIs (including
+  by API label), preview routing, health aggregation, status exit
+  codes, and CLI wiring.
+
 ## [1.8.0] - 2026-08-30
 
 ### Added — free what others charge for

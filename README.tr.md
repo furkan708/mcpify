@@ -77,6 +77,7 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 | HTTP Basic | `--auth-style basic --auth-env CREDS` | env `kullanici:sifre` tutar; `Authorization: Basic …` üretilir — iç API'lerin klasik akışı |
 | 429 nezaketi | `--wait-on-429 30` | API "Retry-After" dediğinde idempotent çağrı için **bir kez** bekler (üst sınır aşılırsa 429 dürüstçe döner); POST/PATCH asla otomatik beklenmez |
 | Kendi sunucun (bedava) | `deploy/docker-compose.yml` | Otomatik HTTPS'li Caddy + çift katman bearer: hosted-MCP planlarının ayda $9–229 ücretlendirdiğini $5 VPS'e taşır — [Self-hosting rehberi](docs/SELF-HOSTING.md) |
+| Çok API, tek sunucu | `.mcpify.toml` içinde `[apis.ADI]` bölümleri | Tek `serve` süreci birden çok OpenAPI dokümanını tek araç yüzeyine toplar: API başına ayrı kimlik/cache/retry/filtre, çakışan araç adlarında otomatik önek, paralel sağlık raporu — hosted gateway'lerin ücretlendirdiği özellik, config dosyasında |
 | Terminal REPL'i | `mcpify try ./openapi.json` | Ajan istemcisi olmadan araçları elle çağırın: seç, argüman gir, gerçek yanıtı gör |
 | Paylaşılabilir sunucu | `mcpify output-server spec.json -o server.py` | serve komutunu küçük bir betiğe gömer; ekip `python3 server.py` der ve aynı sunucuyu alır |
 
@@ -84,8 +85,9 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 
 - **Odaklı ve üretim hazırı:** Tek iş (OpenAPI → MCP), tek arayüz (stdio
   üzerinde tek komut), sıfır runtime bağımlılığı. Odaklılık küçüklük demek değil:
-  18 pakette 294 test, iki transport (stdio + HTTP), çift MCP-spec uyumu, OAuth2,
-  politika katmanı, cache, güvenli retry ve health sorgusu bu tek işi destekliyor.
+  19 pakette 317 test, iki transport (stdio + HTTP), çift MCP-spec uyumu, OAuth2,
+  çok-API aggregation, politika katmanı, cache, güvenli retry ve health sorgusu
+  bu tek işi destekliyor.
 - **Token bütçesi:** Her araç tanımı modelin bağlam penceresini (context) tüketir.
   mcpify'ın filtreleriyle yalnızca ilgili uçları açarsınız; CLI tabanlı yaklaşımlardan
   belirgin biçimde daha az token harcarsınız.
@@ -105,7 +107,7 @@ Tam liste: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
 ## Test ve kalite
 
-**294 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
+**317 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
 yükleyen canlı entegrasyon testidir (çevrimdışında otomatik atlanır).
 Tüm paketler Python 3.10–3.12 üzerinde Linux ve Windows'ta koşar; her
 push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
@@ -127,6 +129,7 @@ push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
 | HTTP transport | 19 | Streamable HTTP: POST üzerinden yaşam döngüsü, 405/411/413/415 hata merdiveni, parse/batch reddi, bearer zorlaması, bind-string ayrıştırıcı |
 | OAuth2 client-credentials | 18 | saatle token çekme/cache/yenileme, Basic vs body istemci kimliği, public client, her hata türü, 401 öz-düzeltme |
 | `try` REPL | 26 | borulu stdin oturumları: numara/isimle seçim, tipli girdi, hatalı girdide yeniden sorma, `:raw`/`:info`, temiz EOF/Ctrl+C çıkışı |
+| Çok-API aggregation | 23 | `[apis.*]` birleştirme: iki taraflı çakışma öneki ve `_2` eki, API başına yönlendirme/kimlik/cache izolasyonu, eşzamanlı toplu sağlık raporu (ölü API ismi hint'te), API etiketiyle lazy arama, önizleme yönlendirmesi, status çıkış kodları, `--env` devri |
 | `output-server` | 10 | gömülü spec bütünlüğü, koruma rayları, sır uyarıları ve gerçek subprocess E2E el sıkışması |
 | CLI bağlantı yapıştırıcısı | 10 | `--http` kablolaması, `MCPIFY_HTTP_TOKEN` yedeği, OAuth2 bayrak kuralları, config anahtarları, sihirbaz 5. seçenek, `try` duman testi |
 
