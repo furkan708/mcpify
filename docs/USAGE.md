@@ -869,12 +869,14 @@ know where to start.
 mcpify serve spec.yaml --fields id,name,status
 ```
 
-Successful JSON responses keep only the requested top-level keys — applied
-to the response object itself, or to every item when the response is a
-top-level array. Nested objects are deliberately untouched: the boundary
-is documented and predictable, so the agent never loses a field two levels
-deep that it did not ask about. Per API: `fields = "id,name"` in
-`[apis.NAME]`. Combine with `--cache-ttl` for cheap repeated reads.
+The rule is documented and predictable at EVERY level: a selected key
+keeps its value verbatim; non-selected containers are transparent — they
+survive only when they still hold selected data after projection; empty
+containers and unmatched items are dropped. API envelopes become
+transparent: `--fields id,event` on an alert envelope keeps `features`
+with each alert's `id` and `properties.event`, and drops geometry,
+context and prose. Per API: `fields = "id,name"` in `[apis.NAME]`.
+Combine with `--cache-ttl` for cheap repeated reads.
 
 ### `mcpify list --cost` — know the bill before serving
 

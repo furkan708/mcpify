@@ -377,17 +377,39 @@ def parse_fields(raw: str | None) -> frozenset[str]:
 
 
 def project_json(data: Any, fields: frozenset[str]) -> Any:
-    """Keep only the requested TOP-LEVEL keys of a JSON response.
+    """Keep only the requested fields — at EVERY level of the response.
 
-    Applied to the response object itself, or to every item when the
-    response is a top-level array. Nested objects are deliberately left
-    intact — the projection boundary is the documented, predictable one
-    (no surprise removals two levels deep).
+    Rule, documented and predictable: a selected key keeps its value
+    verbatim (arrays it holds are never second-guessed); a non-selected
+    container key is TRANSPARENT — it survives only when it still holds
+    selected data after projection; everything else is dropped, including
+    scalar arrays that carry no selected field and items emptied by the
+    projection. This makes API envelopes transparent: ``--fields
+    id,event`` on an alert envelope keeps ``features`` (the container),
+    each alert's ``id`` and its ``properties.event`` — and drops
+    geometry, context and prose. A top-level-only rule was tried first
+    and failed the live test: the same query returned an empty object
+    because the requested fields lived one level inside the envelope.
     """
     if isinstance(data, dict):
-        return {key: value for key, value in data.items() if key in fields}
+        out: dict[str, Any] = {}
+        for key, value in data.items():
+            if key in fields:
+                out[key] = value
+            elif isinstance(value, (dict, list)):
+                projected = project_json(value, fields)
+                if projected:  # an emptied container is noise, not data
+                    out[key] = projected
+        return out
     if isinstance(data, list):
-        return [project_json(item, fields) for item in data]
+        kept: list[Any] = []
+        for item in data:
+            if isinstance(item, (dict, list)):
+                projected = project_json(item, fields)
+                if projected:
+                    kept.append(projected)
+            # scalars inside a non-selected array carry no field: dropped
+        return kept
     return data
 
 

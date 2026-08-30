@@ -74,12 +74,25 @@ def test_parse_fields_tolerates_spaces_and_empties():
     assert parse_fields(None) == frozenset()
 
 
-def test_project_json_is_top_level_only():
+def test_project_json_selects_at_every_level():
     data = {"id": 1, "name": "Rex", "secret": "x", "meta": {"id": 9, "keep": "me"}}
-    assert project_json(data, frozenset({"id", "name"})) == {"id": 1, "name": "Rex"}
-    items = project_json([{"id": 1, "drop": 2}, {"id": 3, "drop": 4}], frozenset({"id"}))
-    assert items == [{"id": 1}, {"id": 3}]
+    assert project_json(data, frozenset({"id", "name"})) == {"id": 1, "name": "Rex", "meta": {"id": 9}}
+    items = project_json([{"id": 1, "drop": 2}, {"other": 3}, {"id": 3, "drop": 4}], frozenset({"id"}))
+    assert items == [{"id": 1}, {"id": 3}]  # emptied items are dropped
     assert project_json("plain", frozenset({"id"})) == "plain"
+
+
+def test_project_json_envelopes_are_transparent():
+    envelope = {"@context": [1, 2], "type": "FeatureCollection", "title": "T",
+                "features": [{"id": "a", "geometry": {"z": 1},
+                              "properties": {"event": "Flood", "severity": "Severe", "headline": "h"}}]}
+    out = project_json(envelope, frozenset({"id", "event", "severity"}))
+    assert out == {"features": [{"id": "a", "properties": {"event": "Flood", "severity": "Severe"}}]}
+
+
+def test_project_json_selected_keys_keep_their_arrays():
+    data = {"ids": [1, 2, 3], "id": 5}
+    assert project_json(data, frozenset({"ids"})) == {"ids": [1, 2, 3]}
 
 
 class Upstream(http.server.BaseHTTPRequestHandler):
@@ -119,7 +132,9 @@ def test_fields_projection_over_live_call(upstream):
     server = ApiServer(spec, upstream, fields=frozenset({"id", "name"}))
     r = rpc(server, "tools/call", {"name": "list_pets", "arguments": {}}, 2)
     parsed = json.loads(r["result"]["content"][0]["text"])
-    assert parsed == [{"id": 7, "name": "Pet7"}]  # nested `tag` dropped at TOP level only
+    # selected keys survive at every level: the nested tag survives with id+name,
+    # its unknown key is dropped; status (not selected) is gone
+    assert parsed == [{"id": 7, "name": "Pet7", "tag": {"id": 2, "name": "dogs"}}]
 
 
 def test_fields_none_keeps_full_body(upstream):

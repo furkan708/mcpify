@@ -14,10 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-tool `cost_tokens` in `--json` and a cut-it hint in the human
   output. The bill every agent pays in every `tools/list`, visible
   before serving.
-- **`--fields` response projection:** successful JSON responses keep
-  only the requested top-level keys (applied to each item of a
-  top-level array; nested objects untouched — a documented, predictable
-  boundary). Per API via `fields = "id,name"` in `[apis.NAME]`/`[serve]`.
+- **`--fields` response projection:** selects fields at EVERY level —
+  selected keys keep their value, non-selected containers are
+  transparent (they survive only when they still hold selected data),
+  emptied containers and unmatched items are dropped. API envelopes
+  become transparent (`--fields id,event` keeps `features` + each
+  alert's `properties.event`). A top-level-only rule was implemented
+  first and replaced after the live weather.gov test returned an empty
+  object for fields living inside the envelope. Per API via
+  `fields = "id,name"` in `[apis.NAME]`/`[serve]`.
 - **SSE POST responses (Streamable HTTP):** clients that send
   `Accept: text/event-stream` receive the JSON-RPC response as a single
   `message` event; JSON clients keep `application/json`. Stateless by
@@ -29,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   token; 401 self-heal covers both. Mutually exclusive with
   `--write-auth-env`; the v1.12 static-write-with-OAuth2-main refusal
   is lifted (styles are independent now).
-- 18 new tests (430 total, twenty-six suites).
+- 20 new tests (432 total, twenty-six suites).
 
 ## [1.12.1] - 2026-08-30
 
