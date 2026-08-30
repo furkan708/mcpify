@@ -22,6 +22,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
+from typing import Any
 
 from .tools import RequestError
 
@@ -54,7 +55,7 @@ def _log(level: str, message: str) -> None:
                 fh.write(line + "\n")
 
 
-def _mask(headers: dict) -> dict:
+def _mask(headers: dict[str, Any]) -> dict[str, Any]:
     masked = {}
     for key, value in (headers or {}).items():
         if key.lower() in ("authorization", "x-api-key", "api-key"):
@@ -75,20 +76,21 @@ class ResponseCache:
 
     def __init__(self, ttl: float) -> None:
         self.ttl = ttl
-        self._store: dict = {}
+        self._store: dict[str, Any] = {}
         self._lock = threading.Lock()
 
-    def get(self, key: str) -> dict | None:
+    def get(self, key: str) -> dict[str, Any] | None:
         now = time.monotonic()
         with self._lock:
             entry = self._store.get(key)
             if entry and entry["expires"] > now:
-                return entry["result"]
+                result: dict[str, Any] = entry["result"]
+                return result
             if entry:
                 del self._store[key]
         return None
 
-    def put(self, key: str, result: dict) -> None:
+    def put(self, key: str, result: dict[str, Any]) -> None:
         with self._lock:
             if len(self._store) >= MAX_CACHE_ENTRIES:
                 oldest = min(self._store, key=lambda k: self._store[k]["expires"])
@@ -96,7 +98,7 @@ class ResponseCache:
             self._store[key] = {"expires": time.monotonic() + self.ttl, "result": result}
 
 
-def _retry_after_seconds(result: dict, fallback: float) -> float | None:
+def _retry_after_seconds(result: dict[str, Any], fallback: float) -> float | None:
     """Parse the Retry-After header (integer seconds). HTTP-date form and
     unparsable values return None (nothing sane to wait); a missing
     header falls back to the configured retry delay."""
@@ -111,13 +113,13 @@ def _retry_after_seconds(result: dict, fallback: float) -> float | None:
 
 
 def execute(
-    request: dict,
+    request: dict[str, Any],
     timeout: float = 30.0,
     cache: ResponseCache | None = None,
     retry: int = 0,
     retry_delay: float = 1.0,
     wait_on_429: float = 0.0,
-) -> dict:
+) -> dict[str, Any]:
     """Perform the request and return {status, body, json, headers}.
 
     HTTP errors (4xx/5xx) are returned as results instead of raising, so
@@ -158,7 +160,7 @@ def execute(
         return result
 
 
-def _execute_once(request: dict, timeout: float, cache: ResponseCache | None = None) -> dict:
+def _execute_once(request: dict[str, Any], timeout: float, cache: ResponseCache | None = None) -> dict[str, Any]:
     cache_key = request.get("method", "GET").upper() + " " + request["url"]
     if cache is not None and request.get("method", "GET").upper() == "GET":
         hit = cache.get(cache_key)
@@ -167,7 +169,7 @@ def _execute_once(request: dict, timeout: float, cache: ResponseCache | None = N
             return hit
     data = request.get("body")
     url_guvenli = request["url"].split("?", 1)[0]
-    req = urllib.request.Request(
+    req = urllib.request.Request(  # noqa: S310 — URL operatorun spec'inden
         request["url"],
         data=data,
         headers=request["headers"],
@@ -175,14 +177,15 @@ def _execute_once(request: dict, timeout: float, cache: ResponseCache | None = N
     )
     basla = time.monotonic()
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        # sema operatorun spec/base-url seciminden gelir; ajandan degil (S310 gerekcesi)
+        with urllib.request.urlopen(req, timeout=timeout) as response:  # noqa: S310
             status = response.status
             raw = response.read().decode("utf-8", "replace")
-            headers = {k: v for k, v in response.headers.items()}
+            headers = dict(response.headers.items())
     except urllib.error.HTTPError as err:
         status = err.code
         raw = err.read().decode("utf-8", "replace")
-        headers = {k: v for k, v in err.headers.items()} if err.headers else {}
+        headers = dict(err.headers.items()) if err.headers else {}
     except urllib.error.URLError as err:
         _log("ERROR", f"{request['method']} {url_guvenli} -> connection failed: {err.reason}")
         return {
@@ -214,7 +217,7 @@ def _execute_once(request: dict, timeout: float, cache: ResponseCache | None = N
 MAX_RESULT_CHARS = 40_000
 
 
-def remediation(result: dict, tool: dict | None = None, known_paths: list[str] | None = None) -> str:
+def remediation(result: dict[str, Any], tool: dict[str, Any] | None = None, known_paths: list[str] | None = None) -> str:
     """Turn an HTTP error into corrective guidance the agent can act on.
 
     The single biggest lever on agent success rate is not preventing
@@ -284,7 +287,7 @@ def remediation(result: dict, tool: dict | None = None, known_paths: list[str] |
     return "\n" + "\n".join("- " + tip for tip in tips)
 
 
-def format_result(result: dict) -> tuple[str, bool]:
+def format_result(result: dict[str, Any]) -> tuple[str, bool]:
     """Format an execute() result for an MCP tool response: (text, is_error).
 
     Oversized bodies are truncated so a single tool call cannot blow the
@@ -424,12 +427,13 @@ class OAuth2ClientCredentials:
         self._expires_at = self._clock() + max(ttl, 1.0)
         _log("INFO", "oauth2: token acquired")
 
-    def headers(self) -> dict:
+    def headers(self) -> dict[str, Any]:
         if self._token is None or self._clock() > self._expires_at - OAUTH2_REFRESH_MARGIN:
             with self._lock:
                 if self._token is None or self._clock() > self._expires_at - OAUTH2_REFRESH_MARGIN:
                     self._fetch()
-        assert self._token is not None  # _fetch raised or set it
+        if self._token is None:  # defensive: -O strips asserts; _fetch raises or sets
+            raise RequestError("oauth2: token fetch produced no token")
         return {"Authorization": f"Bearer {self._token}"}
 
     def apply_query(self, url: str) -> str:
@@ -441,7 +445,7 @@ class OAuth2ClientCredentials:
             self._token = None
             self._expires_at = 0.0
 
-    def describe(self) -> dict:
+    def describe(self) -> dict[str, Any]:
         import os
 
         return {

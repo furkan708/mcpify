@@ -11,7 +11,7 @@ English | [Türkçe](README.tr.md)
   <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
 </p>
 
-[![Tests](https://img.shields.io/badge/tests-317%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-327%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
 [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/ci.yml)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-4A90D9)](server.json)
@@ -97,7 +97,7 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   `outputSchema`/`structuredContent`, remediation-grade errors that teach the
   next call, dry-run request previews, and a `--lazy` search-then-call mode
   that cut api.weather.gov's listing by **95.5%** (38,882 → 1,741 chars)
-- **317 tests across nineteen suites** — including full MCP protocol runs
+- **327 tests across twenty suites** — including full MCP protocol runs
   over stdio *and* over HTTP against real local APIs and the **live
   api.weather.gov document** (69 tools, 16 enum'd parameters)
 
@@ -331,7 +331,7 @@ Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHEC
 
 ## Tests
 
-**317 passing**, plus one live-integration test that loads the real
+**327 passing**, plus one live-integration test that loads the real
 api.weather.gov document (auto-skipped when offline). Every suite runs on
 Python 3.10–3.12 across Linux and Windows; `ruff`, strict `mypy` and
 CodeQL gate every push.
@@ -340,23 +340,23 @@ CodeQL gate every push.
 |---|---:|---|
 | Spec parsing & resolution | 13 | OpenAPI 3.x + YAML loading, `$ref` chains, `allOf` merge, server variables, malformed input |
 | Tool translation | 19 | operationId naming with collision suffixing, input schemas, enums, body handling, annotation & output-schema derivation |
-| Agent surface | 31 | HTTP-derived annotations, structured output contract, remediation errors, `--lazy` search, dry-run previews |
+| Agent surface | 32 | HTTP-derived annotations, structured output contract, remediation errors, `--lazy` search, dry-run previews |
 | CLI | 15 | `list` / `doctor` / `serve` flags, `--json` output, deprecated badges |
 | Hostile corpus | 11 | circular `$ref`s, multipart bodies, relative base URLs, 300 KB truncation, 500-op performance — each traced to a documented real-world failure |
 | Lifecycle & hygiene | 8 | initialize handshake (`-32002`), byte-pure stdio, credentials never logged |
 | Protocol end-to-end | 9 | real JSON-RPC over stdio against a live local HTTP API, wire-level assertions |
 | Policy layer | 7 | `--read-only`, `--allow` / `--deny` precedence, mutating-GET protection |
 | `$ref` parameters | 4 | parameter schemas resolved against the full spec — the weather.gov bug class (one test hits the live document) |
-| Ops & configuration | 41 | config files + env precedence, init wizard, cache TTL & bounds, retry safety, XML conversion, discovery, batching, status/health |
+| Ops & configuration | 47 | config files + env precedence, init wizard, cache TTL & bounds, retry safety, XML conversion, discovery, batching, status/health |
 | Protocol version compat | 5 | 2026-07-28 stateless `_meta` requests and the legacy 2025-06-18 handshake, on the same wire |
 | HTTP transport | 19 | Streamable HTTP: lifecycle over POST, 405/411/413/415 error ladder, parse/batch rejections, bearer enforcement, bind-string parser |
 | OAuth2 client-credentials | 18 | token fetch/cache/refresh with a fake clock, Basic vs body client auth, public clients, every failure mode, 401 self-heal end-to-end |
 | `try` REPL | 26 | piped-stdin sessions: selection by number/name, typed prompts, re-prompt on bad input, `:raw`/`:info`, clean EOF/Ctrl+C exits, read-only surface |
-| `output-server` | 10 | embedded spec integrity, guard rails (existing file, bad spec, unknown flags), secret warnings, and a real subprocess E2E handshake |
+| `output-server` | 11 | embedded spec integrity, guard rails (existing file, bad spec, unknown flags), secret warnings, and a real subprocess E2E handshake |
 | Server selection | 17 | `--server INDEX|NAME` rules: index, description/URL name matching, error listings, `--base-url` precedence, server-variable defaults, CLI/status/config/doctor wiring |
 | Auth auto-detection & Basic | 22 | securitySchemes → style/name resolution (OpenAPI + Swagger 2.0), requirement-order precedence, operation-level security, exact hint text, HTTP Basic header encoding, CLI/try/doctor wiring, explicit-style override |
 | Rate-limit courtesy (`--wait-on-429`) | 9 | Retry-After honored once within cap, cap exceeded returns 429 untouched, missing header falls back to retry delay, HTTP-date form never waits, POST never auto-waited, CLI wiring |
-| Multi-API aggregation | 23 | `[apis.*]` merge with two-sided collision prefixes and `_2` suffixes, per-API routing/auth/cache isolation, concurrent aggregated health (dead-API named in hint), lazy search across APIs incl. label match, preview routing, status exit codes, `--env` inheritance, both-rejected flag combos |
+| Multi-API aggregation | 26 | `[apis.*]` merge with two-sided collision prefixes and `_2` suffixes, per-API routing/auth/cache isolation, concurrent aggregated health (dead-API named in hint), lazy search across APIs incl. label match, preview routing, status exit codes, `--env` inheritance, both-rejected flag combos |
 | CLI connectivity glue | 10 | `--http` wiring, `MCPIFY_HTTP_TOKEN` fallback, OAuth2 flag rules, config-file keys, wizard option 5, `try` smoke test |
 
 Policy on failures: every bug found in the wild becomes a pinned

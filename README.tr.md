@@ -85,7 +85,7 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 
 - **Odaklı ve üretim hazırı:** Tek iş (OpenAPI → MCP), tek arayüz (stdio
   üzerinde tek komut), sıfır runtime bağımlılığı. Odaklılık küçüklük demek değil:
-  19 pakette 317 test, iki transport (stdio + HTTP), çift MCP-spec uyumu, OAuth2,
+  20 pakette 327 test, iki transport (stdio + HTTP), çift MCP-spec uyumu, OAuth2,
   çok-API aggregation, politika katmanı, cache, güvenli retry ve health sorgusu
   bu tek işi destekliyor.
 - **Token bütçesi:** Her araç tanımı modelin bağlam penceresini (context) tüketir.
@@ -107,7 +107,7 @@ Tam liste: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
 ## Test ve kalite
 
-**317 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
+**327 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
 yükleyen canlı entegrasyon testidir (çevrimdışında otomatik atlanır).
 Tüm paketler Python 3.10–3.12 üzerinde Linux ve Windows'ta koşar; her
 push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
@@ -117,7 +117,7 @@ push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
 |---|---:|---|
 | Spec ayrıştırma & çözümleme | 13 | OpenAPI 3.x + YAML yükleme, `$ref` zincirleri, `allOf` birleştirme, server değişkenleri, bozuk girdi |
 | Tool çevirisi | 19 | operationId isimlendirme ve çakışma son eki, input şemaları, enum'lar, gövde işleme, annotation & output şeması türetimi |
-| Agent yüzeyi | 31 | HTTP'den türetilen annotation'lar, structured output sözleşmesi, remediation hataları, `--lazy` arama, dry-run önizleme |
+| Agent yüzeyi | 32 | HTTP'den türetilen annotation'lar, structured output sözleşmesi, remediation hataları, `--lazy` arama, dry-run önizleme |
 | CLI | 15 | `list` / `doctor` / `serve` bayrakları, `--json` çıktı, deprecated etiketi |
 | Düşmanca korpus | 11 | döngüsel `$ref`, multipart gövde, relative base URL, 300 KB kısaltma, 500-op performans — her biri belgelenmiş gerçek hata sınıfından |
 | Yaşam döngüsü & hijyen | 8 | initialize el sıkışması (`-32002`), bayt-saf stdio, kimlik bilgileri asla loglanmaz |
@@ -125,12 +125,12 @@ push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
 | Politika katmanı | 7 | `--read-only`, `--allow` / `--deny` önceliği, yazan-GET koruması |
 | `$ref` parametreleri | 4 | parametre şemalarının tam spec'e karşı çözümlenmesi — weather.gov hata sınıfı (biri canlı dokümana vurur) |
 | Protokol sürüm uyumu | 5 | 2026-07-28 stateless `_meta` istekleri ve eski 2025-06-18 el sıkışması aynı hatta |
-| Operasyon & yapılandırma | 41 | config dosyaları + env önceliği, init sihirbazı, cache TTL, retry güvenliği, XML dönüşümü, keşif, batch, status/health |
+| Operasyon & yapılandırma | 47 | config dosyaları + env önceliği, init sihirbazı, cache TTL, retry güvenliği, XML dönüşümü, keşif, batch, status/health |
 | HTTP transport | 19 | Streamable HTTP: POST üzerinden yaşam döngüsü, 405/411/413/415 hata merdiveni, parse/batch reddi, bearer zorlaması, bind-string ayrıştırıcı |
 | OAuth2 client-credentials | 18 | saatle token çekme/cache/yenileme, Basic vs body istemci kimliği, public client, her hata türü, 401 öz-düzeltme |
 | `try` REPL | 26 | borulu stdin oturumları: numara/isimle seçim, tipli girdi, hatalı girdide yeniden sorma, `:raw`/`:info`, temiz EOF/Ctrl+C çıkışı |
-| Çok-API aggregation | 23 | `[apis.*]` birleştirme: iki taraflı çakışma öneki ve `_2` eki, API başına yönlendirme/kimlik/cache izolasyonu, eşzamanlı toplu sağlık raporu (ölü API ismi hint'te), API etiketiyle lazy arama, önizleme yönlendirmesi, status çıkış kodları, `--env` devri |
-| `output-server` | 10 | gömülü spec bütünlüğü, koruma rayları, sır uyarıları ve gerçek subprocess E2E el sıkışması |
+| Çok-API aggregation | 26 | `[apis.*]` birleştirme: iki taraflı çakışma öneki ve `_2` eki, API başına yönlendirme/kimlik/cache izolasyonu, eşzamanlı toplu sağlık raporu (ölü API ismi hint'te), API etiketiyle lazy arama, önizleme yönlendirmesi, status çıkış kodları, `--env` devri |
+| `output-server` | 11 | gömülü spec bütünlüğü, koruma rayları, sır uyarıları ve gerçek subprocess E2E el sıkışması |
 | CLI bağlantı yapıştırıcısı | 10 | `--http` kablolaması, `MCPIFY_HTTP_TOKEN` yedeği, OAuth2 bayrak kuralları, config anahtarları, sihirbaz 5. seçenek, `try` duman testi |
 
 İlke: sahada bulunan her hata, düzeltme gönderilmeden önce regresyon

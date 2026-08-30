@@ -88,7 +88,7 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
   belongs above this layer (rationale in USAGE.md)
 
 ## 10. Test & validation
-- ✅ **317 passing tests across nineteen suites** (318 collected; one
+- ✅ **327 passing tests across twenty suites** (328 collected; one
   live-integration test auto-skips offline) — full matrix in the README
 - ✅ Quality gates on every push: ruff, mypy `strict`, CodeQL,
   Python 3.10–3.12 × Linux + Windows
@@ -111,6 +111,14 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
   merge/rename rules, per-API auth & cache isolation, concurrent health
   probes (dead API named in the hint), lazy search across APIs, status
   exit codes, and the reject-both-inputs guard
+- ✅ v1.9.1 audit round: mypy `strict = true` + `warn_unreachable` clean;
+  ruff expanded to 20+ rule families (S/ARG/PERF/FURB/RUF…) with every
+  finding fixed or justified inline; hand-rolled mutation check on the
+  aggregation layer — 11 mutants, all killed (suffix counter, owner
+  routing, health flags, search-by-label, entries aliasing, probe
+  concurrency); coverage **91.3%** overall, `aggregate.py` 100%;
+  bandit findings triaged (all deliberate, justified inline); sdist +
+  wheel `twine check` PASSED; 3.10 fallback TOML parser parity-tested
 
 ---
 *Audited 2026-08-30 against v1.9.0. Re-run on every release.*

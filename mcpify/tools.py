@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from .spec import SpecError, resolve_schema
@@ -33,7 +33,7 @@ def slugify(*parts: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", text).strip("_") or "call"
 
 
-def operation_id(method: str, path: str, operation: dict) -> str:
+def operation_id(method: str, path: str, operation: dict[str, Any]) -> str:
     """Prefer the spec's operationId, fall back to method_path."""
     declared = str(operation.get("operationId", "")).strip()
     if declared:
@@ -42,14 +42,14 @@ def operation_id(method: str, path: str, operation: dict) -> str:
     return slugify(method, template)
 
 
-def build_description(method: str, path: str, operation: dict) -> str:
+def build_description(method: str, path: str, operation: dict[str, Any]) -> str:
     text = str(operation.get("summary") or operation.get("description") or "").strip()
     if text:
         return f"[{method}] {text}"
     return f"[{method}] Call {path}"
 
 
-def annotations_for(method: str, operation: dict) -> dict:
+def annotations_for(method: str, operation: dict[str, Any]) -> dict[str, Any]:
     """MCP tool annotations derived from HTTP semantics.
 
     Clients use these hints for approval routing (readOnlyHint=true may be
@@ -73,14 +73,14 @@ def annotations_for(method: str, operation: dict) -> dict:
         hints = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True}
     else:  # POST, PATCH
         hints = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False}
-    annotations: dict = {"openWorldHint": True, **hints}
+    annotations: dict[str, Any] = {"openWorldHint": True, **hints}
     title = str(operation.get("summary") or "").strip()
     if title:
         annotations = {"title": title, **annotations}
     return annotations
 
 
-def detect_auth(spec: dict) -> dict | None:
+def detect_auth(spec: dict[str, Any]) -> dict[str, Any] | None:
     """Read the spec's security declarations and return the strongest hint
     for wiring --auth-env: {"style", "name", "oauth2"} or None.
 
@@ -109,7 +109,7 @@ def detect_auth(spec: dict) -> dict | None:
                 requirements = operation["security"]
                 break
 
-    ordered: list[dict] = []
+    ordered: list[dict[str, Any]] = []
     seen: set[str] = set()
     for requirement in requirements if isinstance(requirements, list) else []:
         if isinstance(requirement, dict):
@@ -146,7 +146,7 @@ def detect_auth(spec: dict) -> dict | None:
     return None
 
 
-def output_schema_for(operation: dict, spec: dict) -> dict | None:
+def output_schema_for(operation: dict[str, Any], spec: dict[str, Any]) -> dict[str, Any] | None:
     """Structured-output schema from the operation's documented 2xx JSON body.
 
     MCP structured output is a promise: a tool that declares outputSchema
@@ -164,17 +164,18 @@ def output_schema_for(operation: dict, spec: dict) -> dict | None:
         media = (entry.get("content") or {}).get("application/json")
         if isinstance(media, dict) and media.get("schema"):
             try:
-                return resolve_schema(media["schema"], spec)
+                resolved: dict[str, Any] = resolve_schema(media["schema"], spec)
+                return resolved
             except SpecError:
                 return None  # circular / unresolvable: no promise at all
     return None
 
 
-def extract_parameters(operation: dict, path_item: dict, spec: dict) -> list[dict]:
+def extract_parameters(operation: dict[str, Any], path_item: dict[str, Any], spec: dict[str, Any]) -> list[dict[str, Any]]:
     """Collect path/query/header parameters from the operation and its path item."""
-    merged: dict[tuple, dict] = {}
+    merged: dict[tuple[Any, ...], dict[str, Any]] = {}
 
-    def add(params: list[dict]) -> None:
+    def add(params: list[object]) -> None:
         for param in params:
             if not isinstance(param, dict):
                 continue
@@ -192,13 +193,12 @@ def extract_parameters(operation: dict, path_item: dict, spec: dict) -> list[dic
 
 def build_input_schema(
     method: str,
-    operation: dict,
-    parameters: list[dict],
-    request_schema: dict | None,
-    spec: dict | None = None,
+    parameters: list[dict[str, Any]],
+    request_schema: dict[str, Any] | None,
+    spec: dict[str, Any] | None = None,
     raw_body_content_type: str | None = None,
     strict: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     """Build the JSON Schema for an MCP tool from parameters + request body.
 
     Parameter schemas are resolved against the full spec so `$ref`-based
@@ -207,12 +207,13 @@ def build_input_schema(
     whole server.
     """
     spec = spec or {}
-    properties: dict = {}
+    properties: dict[str, Any] = {}
     required: list[str] = []
 
-    def safe_resolve(schema: dict) -> dict:
+    def safe_resolve(schema: dict[str, Any]) -> dict[str, Any]:
         try:
-            return resolve_schema(schema, spec)
+            resolved: dict[str, Any] = resolve_schema(schema, spec)
+            return resolved
         except SpecError:
             return {"type": "string",
                     "description": "(schema could not be fully resolved from the spec)"}
@@ -263,7 +264,7 @@ def build_input_schema(
     return {"type": "object", "properties": properties, "required": required}
 
 
-def operation_to_tool(method: str, path: str, operation: dict, path_item: dict, spec: dict, taken: set, strict: bool = False) -> dict:
+def operation_to_tool(method: str, path: str, operation: dict[str, Any], path_item: dict[str, Any], spec: dict[str, Any], taken: set[str], strict: bool = False) -> dict[str, Any]:
     """Return an MCP tool descriptor for one OpenAPI operation."""
     parameters = extract_parameters(operation, path_item, spec)
 
@@ -293,11 +294,11 @@ def operation_to_tool(method: str, path: str, operation: dict, path_item: dict, 
         counter += 1
     taken.add(name)
 
-    tool: dict = {
+    tool: dict[str, Any] = {
         "name": name,
         "description": build_description(method, path, operation),
         "inputSchema": build_input_schema(
-            method.upper(), operation, parameters, request_schema, spec, raw_body_content_type,
+            method.upper(), parameters, request_schema, spec, raw_body_content_type,
             strict=strict,
         ),
         "annotations": annotations_for(method, operation),
@@ -317,12 +318,12 @@ def operation_to_tool(method: str, path: str, operation: dict, path_item: dict, 
     return tool
 
 
-def spec_to_tools(spec: dict, strict: bool = False) -> list[dict]:
+def spec_to_tools(spec: dict[str, Any], strict: bool = False) -> list[dict[str, Any]]:
     """Convert every operation in the spec into MCP tool descriptors."""
     from .spec import iter_operations
 
-    tools: list[dict] = []
-    taken: set = set(META_TOOL_NAMES)
+    tools: list[dict[str, Any]] = []
+    taken: set[str] = set(META_TOOL_NAMES)
     for method, path, operation in iter_operations(spec):
         if method.lower() in ("head", "options", "trace"):
             continue  # no agent value; they carry no request semantics
@@ -341,18 +342,18 @@ class RequestError(ValueError):
 
 def build_request(
     base_url: str,
-    meta: dict,
-    arguments: dict,
+    meta: dict[str, Any],
+    arguments: dict[str, Any],
     auth: AuthConfig | OAuth2ClientCredentials | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Turn tool arguments into a concrete HTTP request (url/headers/body)."""
 
     method = meta["method"]
     path_template = meta["path"]
-    used: set = set()
+    used: set[str] = set()
 
     # path parameters
-    def substitute(match: re.Match) -> str:
+    def substitute(match: re.Match[str]) -> str:
         name = match.group(1)
         arg = arguments.get(name)
         if arg is None or arg == "":
@@ -430,7 +431,7 @@ class AuthConfig:
         self.style = style
         self.name = name
 
-    def headers(self) -> dict:
+    def headers(self) -> dict[str, Any]:
         import base64
         import os
 
@@ -465,7 +466,7 @@ class AuthConfig:
         separator = "&" if "?" in url else "?"
         return f"{url}{separator}{self.name or 'api_key'}={quote(value)}"
 
-    def describe(self) -> dict:
+    def describe(self) -> dict[str, Any]:
         """Health-report view; OAuth2ClientCredentials mirrors this shape."""
         import os
 
@@ -476,7 +477,7 @@ class AuthConfig:
         }
 
 
-def describe_tools(tools: list[dict]) -> str:
+def describe_tools(tools: list[dict[str, Any]]) -> str:
     """One-line-per-tool summary used by `mcpify list`."""
     lines = []
     for tool in tools:
@@ -488,6 +489,6 @@ def describe_tools(tools: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def input_schema_json(schema: dict) -> str:
+def input_schema_json(schema: dict[str, Any]) -> str:
     """Compact, stable JSON dump for schemas (without private keys)."""
     return json.dumps({k: v for k, v in schema.items() if not k.startswith("_")}, ensure_ascii=False)

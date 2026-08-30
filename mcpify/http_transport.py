@@ -56,7 +56,7 @@ class _MCPHandler(http.server.BaseHTTPRequestHandler):
         _log("INFO", f"http: {self.address_string()} {fmt % args}")
 
     # -- helpers -----------------------------------------------------------
-    def _send(self, status: int, payload: dict | None = None, extra: dict | None = None) -> None:
+    def _send(self, status: int, payload: dict[str, Any] | None = None, extra: dict[str, Any] | None = None) -> None:
         body = b"" if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         if payload is not None:
@@ -91,7 +91,7 @@ class _MCPHandler(http.server.BaseHTTPRequestHandler):
         return scheme.lower() == "bearer" and hmac.compare_digest(value.strip(), token)
 
     # -- methods -----------------------------------------------------------
-    def do_POST(self) -> None:  # noqa: N802 — http.server naming
+    def do_POST(self) -> None:
         if not self._authorized():
             self._send(
                 401,
@@ -132,21 +132,21 @@ class _MCPHandler(http.server.BaseHTTPRequestHandler):
             return
         self._send(200, response)
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         self._send(
             405,
             {"error": "GET is not supported: this stateless server has no SSE stream; POST JSON-RPC messages"},
             {"Allow": "POST, OPTIONS"},
         )
 
-    def do_DELETE(self) -> None:  # noqa: N802
+    def do_DELETE(self) -> None:
         self._send(
             405,
             {"error": "DELETE is not supported: this server issues no session id"},
             {"Allow": "POST, OPTIONS"},
         )
 
-    def do_OPTIONS(self) -> None:  # noqa: N802
+    def do_OPTIONS(self) -> None:
         self._send(204, None, {"Allow": "POST, OPTIONS"})
 
 
@@ -160,8 +160,8 @@ def parse_http_bind(value: str) -> tuple[str, int]:
     else:
         host, port_text = "127.0.0.1", text
     if host in ("", "*"):
-        host = "0.0.0.0"
-    if host not in ("127.0.0.1", "localhost", "0.0.0.0", "::") and not _is_host(host):
+        host = "0.0.0.0"  # noqa: S104 — konteyner/preview gorunurlugu bilerek
+    if host not in ("127.0.0.1", "localhost", "0.0.0.0", "::") and not _is_host(host):  # noqa: S104
         raise ValueError(f"'{host}' does not look like a hostname or IP")
     try:
         port = int(port_text)

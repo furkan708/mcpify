@@ -10,7 +10,7 @@ import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from . import __version__
 from .config import api_sections, apply_to_namespace, load_config, resolve, validate
@@ -38,7 +38,7 @@ def _fail(message: str, code: int = 2) -> NoReturn:
     sys.exit(code)
 
 
-def filter_tools(tools: list[dict], args: argparse.Namespace) -> list[dict]:
+def filter_tools(tools: list[dict[str, Any]], args: argparse.Namespace) -> list[dict[str, Any]]:
     """Apply --tag / --include / --exclude / --read-only / --allow / --deny filters.
 
     Policy layering, weakest to strongest:
@@ -55,7 +55,7 @@ def filter_tools(tools: list[dict], args: argparse.Namespace) -> list[dict]:
     def path_matches(path: str, patterns: list[str]) -> bool:
         return any(path == p or path.startswith(p + "/") for p in patterns)
 
-    def regex_matches(path: str, patterns: list[re.Pattern]) -> bool:
+    def regex_matches(path: str, patterns: list[re.Pattern[str]]) -> bool:
         return any(p.search(path) for p in patterns)
 
     kept = []
@@ -76,7 +76,7 @@ def filter_tools(tools: list[dict], args: argparse.Namespace) -> list[dict]:
     return kept
 
 
-def _pick_server(servers: list, choice: str) -> dict:
+def _pick_server(servers: list[Any], choice: str) -> dict[str, Any]:
     """Resolve the --server flag to one of the spec's declared servers.
 
     Accepts a 1-based index or a name matched against each server's
@@ -105,7 +105,7 @@ def _pick_server(servers: list, choice: str) -> dict:
     raise SpecError(f"--server {choice}: no server matches (declared: {listing})")
 
 
-def _base_url(spec: dict, override: str | None, server: str | None = None) -> str:
+def _base_url(spec: dict[str, Any], override: str | None, server: str | None = None) -> str:
     if override:
         return override
     servers = spec.get("servers") or []
@@ -208,7 +208,7 @@ def _add_serve_options(p: argparse.ArgumentParser, with_http: bool) -> None:
                        "(falls back to MCPIFY_HTTP_TOKEN)")
 
 
-def _build_entries(args: argparse.Namespace, data: dict) -> list[dict]:
+def _build_entries(args: argparse.Namespace, data: dict[str, Any]) -> list[dict[str, Any]]:
     """Expand [apis.NAME] config sections into execution entries.
 
     Precedence per key: CLI flags > [apis.NAME] > [serve] > defaults —
@@ -226,7 +226,7 @@ def _build_entries(args: argparse.Namespace, data: dict) -> list[dict]:
     serve_settings = resolve(data, getattr(args, "env", None))
     serve_settings.pop("_env", None)
 
-    entries: list[dict] = []
+    entries: list[dict[str, Any]] = []
     for label, section in sections.items():
         settings = dict(serve_settings)
         settings.update(section if isinstance(section, dict) else {})
@@ -282,7 +282,7 @@ def _build_entries(args: argparse.Namespace, data: dict) -> list[dict]:
     return entries
 
 
-def _auth_hint(spec: dict | None) -> str | None:
+def _auth_hint(spec: dict[str, Any] | None) -> str | None:
     """Exact, copy-pasteable serve flags for the spec's declared auth."""
     if spec is None:
         return None
@@ -301,7 +301,7 @@ def _auth_hint(spec: dict | None) -> str | None:
     return f"--auth-env API_KEY --auth-style query --auth-name {detected['name']}"
 
 
-def _resolve_auth(args: argparse.Namespace, spec: dict | None = None) -> AuthConfig | OAuth2ClientCredentials | None:
+def _resolve_auth(args: argparse.Namespace, spec: dict[str, Any] | None = None) -> AuthConfig | OAuth2ClientCredentials | None:
     """Build the auth provider from flags. OAuth2 (client-credentials) and
     the static --auth-env credential are mutually exclusive modes. With
     --auth-env and no explicit style, the spec's security declarations
@@ -457,10 +457,10 @@ def main(argv: list[str] | None = None) -> None:
     p_doctor.add_argument("--json", action="store_true", help="machine-readable output")
 
     args = parser.parse_args(argv)
-    tools: list[dict] = []  # status computes its own count
+    tools: list[dict[str, Any]] = []  # status computes its own count
 
     config_path = None
-    config_data: dict = {}
+    config_data: dict[str, Any] = {}
     if args.command in ("serve", "status", "try"):
         try:
             config_path, config_data = load_config(getattr(args, "config", None))
@@ -476,7 +476,7 @@ def main(argv: list[str] | None = None) -> None:
         except ValueError as err:
             _fail(str(err))
 
-    entries: list[dict] | None = None
+    entries: list[dict[str, Any]] | None = None
     if args.command in ("serve", "try") and api_sections(config_data):
         entries = _build_entries(args, config_data)
 
@@ -714,7 +714,7 @@ def main(argv: list[str] | None = None) -> None:
                 else:
                     yield item
 
-        def loader(spec_arg: str) -> tuple[dict, str]:
+        def loader(spec_arg: str) -> tuple[dict[str, Any], str]:
             arg = spec_arg
             if arg.startswith(("http://", "https://")) and urlparse(arg).path in ("", "/"):
                 arg, _ = discover_spec(arg)

@@ -106,19 +106,17 @@ def test_oauth2_requires_client_id_env(tmp_path, capsys):
 def test_config_accepts_oauth2_and_http_keys(tmp_path):
     config = tmp_path / ".mcpify.toml"
     config.write_text(
-        "\n".join([
-            "[serve]",
-            "spec = 'examples/petstore.json'",
-            "oauth2-token-url = 'https://idp.example/token'",
-            "oauth2-client-id-env = 'OAUTH2_ID'",
-            "oauth2-client-secret-env = 'OAUTH2_SECRET'",
-            "oauth2-scope = 'read write'",
-            "oauth2-client-auth = 'body'",
-            "http = '8080'",
-        ]) + "\n",
+        "[serve]\n"
+        "spec = 'examples/petstore.json'\n"
+        "oauth2-token-url = 'https://idp.example/token'\n"
+        "oauth2-client-id-env = 'OAUTH2_ID'\n"
+        "oauth2-client-secret-env = 'OAUTH2_SECRET'\n"
+        "oauth2-scope = 'read write'\n"
+        "oauth2-client-auth = 'body'\n"
+        "http = '8080'\n",
         encoding="utf-8",
     )
-    path, data = load_config(str(config))
+    _path, data = load_config(str(config))
     assert validate(data) == []  # no unknown-key complaints
     settings = resolve(data)
     args = argparse.Namespace(

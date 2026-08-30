@@ -44,3 +44,4 @@ def SpecServerFactory():
     yield factory
     for server in servers:
         server.shutdown()
+        server.server_close()

@@ -7,12 +7,12 @@
     "url": "https://github.com/furkan708/mcpify",
     "source": "github"
   },
-  "version": "1.9.0",
+  "version": "1.9.1",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "mcpify-openapi",
-      "version": "1.9.0",
+      "version": "1.9.1",
       "transport": {
         "type": "stdio"
       }

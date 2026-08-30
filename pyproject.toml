@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcpify-openapi"  # "mcpify" on PyPI is an unrelated package; CLI command stays `mcpify`
-version = "1.9.0"
+version = "1.9.1"
 description = "Turn any OpenAPI REST API into an MCP server so AI agents can call it — a focused, production-ready CLI with zero runtime dependencies"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -36,15 +36,33 @@ pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+select = [
+    "E", "F", "W", "I", "UP", "B", "SIM",       # temel dogruluk seti
+    "A", "C4", "DTZ", "FLY", "ICN", "PIE",       # isim/veri hijyeni
+    "RET", "RSE", "SLF", "SLOT", "TID",          # yapisal netlik
+    "PERF", "FURB", "RUF",                       # performans + ruff ozel
+    "S", "ARG",                                   # guvenlik lint + olcu argumanlari
+]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# testlerde assert bir ozellik, fixture argumanlari da bilerek imzada
+"tests/*" = [
+    "S101", "ARG001", "ARG002", "ARG005",
+    # test sabitleri sahte sifrelerdir; kendi XML'ini kendi parse eder;
+    # beyaz kutu _private erisimleri; subprocess E2E uretilen betigi kosar
+    "S104", "S105", "S106", "S314", "S603", "SLF001",
+    # test sunuculari ClassVar olmayan callable olmayan sinif nitelikleri kullanir
+    "RUF012",
+]
+
 [tool.mypy]
+strict = true
+warn_unreachable = true
 warn_unused_ignores = true
-disallow_untyped_defs = true
 ignore_missing_imports = true
 
 [tool.coverage.run]

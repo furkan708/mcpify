@@ -117,7 +117,7 @@ class OpsAPI(http.server.BaseHTTPRequestHandler):
             self._json(503, {"message": "still down"})
         elif self.path.startswith("/gone"):
             self._json(404, {"message": "nothing here"})
-        elif self.path == "/.well-known/openapi.json" and OpsAPI.well_known or self.path == "/openapi.json" and OpsAPI.well_known:
+        elif (self.path == "/.well-known/openapi.json" and OpsAPI.well_known) or (self.path == "/openapi.json" and OpsAPI.well_known):
             self._json(200, json.loads(WELL_KNOWN_SPEC))
         else:
             self._json(200, {"ok": True})
@@ -174,6 +174,23 @@ def test_mini_toml_parser_handles_generated_subset():
 def test_mini_toml_rejects_unsupported_values():
     with pytest.raises(ValueError, match="unsupported value"):
         _parse_mini_toml("[serve]\nbad = 1.5\n")
+
+
+def test_mini_toml_unsupported_escape_names_the_line_and_fix():
+    """Windows yolu cift tirnakla yazan kullaniciya tek tirnak onerilir (gercek hata sinifi)."""
+    with pytest.raises(ValueError, match=r"line 2.*single quotes"):
+        _parse_mini_toml('[serve]\nbase-url = "C:\\Users\\x"\n')
+
+
+def test_wizard_rejects_non_numeric_and_negative_numbers():
+    from mcpify.config import run_wizard
+
+    answers = iter(["s.json", "https://x", "1", "n", "abc", "", "", "n", ""])
+    with pytest.raises(ValueError, match="'abc' is not a number"):
+        run_wizard(answers)
+    answers = iter(["s.json", "https://x", "1", "n", "-5", "", "", "n", ""])
+    with pytest.raises(ValueError, match="must be >= 0"):
+        run_wizard(answers)
 
 
 def test_config_toml_env_precedence_flag_beats_env(tmp_path, capsys):
@@ -251,6 +268,40 @@ def test_config_yaml_requires_extra(tmp_path):
             load_config(str(config))
 
 
+def test_toml_fallback_parser_matches_tomllib_behavior(tmp_path, monkeypatch):
+    """3.10 paritesi: tomllib gizlendiginde fallback parser ayni sonucu vermeli."""
+    import builtins
+
+    config = tmp_path / ".mcpify.toml"
+    config.write_text(
+        "[serve]\nspec = 's.json'\nread-only = true\ncache-ttl = 30\n"
+        'include = ["/a", "/b"]\n',
+        encoding="utf-8",
+    )
+
+    real_import = builtins.__import__
+
+    def no_tomllib(name, *args, **kwargs):
+        if name == "tomllib":
+            raise ImportError("simulated 3.10")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_tomllib)
+    _, data = load_config(str(config))
+    assert data["serve"]["spec"] == "s.json"
+    assert data["serve"]["read-only"] is True
+    assert data["serve"]["cache-ttl"] == 30
+    assert data["serve"]["include"] == ["/a", "/b"]
+
+
+def test_config_json_root_must_be_a_table(tmp_path):
+    """JSON koku tablo degilse aciklayici hata (v1.9.1 oncesi AttributeError cudu)."""
+    config = tmp_path / ".mcpify.json"
+    config.write_text("[1, 2, 3]", encoding="utf-8")
+    with pytest.raises(ValueError, match="root must be a table, got list"):
+        load_config(str(config))
+
+
 # ---------------------------------------------------------------------------
 # 2. init wizard
 # ---------------------------------------------------------------------------
@@ -294,6 +345,27 @@ def test_init_wizard_writes_working_config(tmp_path, monkeypatch, capsys, api):
     # and the generated file parses through the real loader
     _, loaded = load_config(str(tmp_path / ".mcpify.toml"))
     assert validate(loaded) == []
+
+
+def test_init_wizard_prompts_are_displayed(tmp_path, monkeypatch, capsys, api):
+    """Sihirbaz sorulari terminale YAZILIR (v1.9.1 oncesi sessizdi — gercek UX bug'i)."""
+    spec_path = tmp_path / "spec.json"
+    spec_payload = dict(SPEC)
+    spec_payload["servers"] = [{"url": api}]
+    spec_path.write_text(json.dumps(spec_payload), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    cevaplar = iter([
+        str(spec_path), "", "1", "n", "", "", "", "n", "",
+    ])
+    import builtins
+
+    monkeypatch.setattr(builtins, "input", lambda prompt="": next(cevaplar))
+    main(["init", "--config", str(tmp_path / ".mcpify.toml")])
+    cikti = capsys.readouterr().out
+    for beklenen in ("Spec path or URL", "Base URL", "Auth [1=none", "Read-only mode",
+                     "Cache TTL", "Lazy mode", "Response format"):
+        assert beklenen in cikti, f"prompt ekranda yok: {beklenen!r}"
 
 
 def test_init_prefill_flags_skip_questions(tmp_path, monkeypatch, capsys, api):
@@ -559,6 +631,9 @@ def test_xml_attributes_and_text_mapping():
     root = ET.fromstring('<dog id="7" kind="good">Rex</dog>')
     assert xml_to_dict(root) == {"@id": "7", "@kind": "good", "value": "Rex"}
 
+    leaf = ET.fromstring("<cat>Pati</cat>")
+    assert xml_to_dict(leaf) == "Pati"
+
 
 def test_xml_conversion_failure_is_explicit_in_xml_mode():
     from mcpify.convert import convert
@@ -566,6 +641,23 @@ def test_xml_conversion_failure_is_explicit_in_xml_mode():
     metin, veri = convert("<broken", None, "text/xml", "xml")
     assert veri is None
     assert "not well-formed XML" in metin
+
+
+def test_xml_with_dtd_is_never_parsed_billion_laughs_guard():
+    """DTD/entity iceren XML parse edilmez; ham govde doner (S314 sertlestirmesi)."""
+    from mcpify.convert import convert
+
+    bomba = (
+        '<?xml version="1.0"?><!DOCTYPE lolz [<!ENTITY lol "lol">'
+        '<!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">]>'
+        "<response><lol2>&lol2;</lol2></response>"
+    )
+    metin, veri = convert(bomba, None, "text/xml", "auto")
+    assert veri is None
+    assert metin == bomba  # convert edilmedi, aynen dondu
+    metin2, veri2 = convert(bomba, None, "text/xml", "xml")
+    assert veri2 is None
+    assert "conversion skipped: document declares a DTD" in metin2
 
 
 # ---------------------------------------------------------------------------
@@ -617,7 +709,7 @@ def test_batch_over_stdio_wire(api):
 def test_health_tool_reports_reachable_api(api, monkeypatch):
     monkeypatch.setenv("OPS_TOKEN", "gizli")
     auth = type("A", (), {"style": "bearer", "env_var": "OPS_TOKEN",
-                          "headers": staticmethod(lambda: {}),
+                          "headers": staticmethod(dict),
                           "apply_query": staticmethod(lambda url: url),
                           "describe": staticmethod(lambda: {"style": "bearer", "env": "OPS_TOKEN", "env_set": True})})()
     server = make(api, auth=auth, cache_ttl=15, retry=2)

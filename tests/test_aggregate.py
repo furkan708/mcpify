@@ -60,6 +60,7 @@ def api_a():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield server
     server.shutdown()
+    server.server_close()
 
 
 @pytest.fixture()
@@ -68,6 +69,7 @@ def api_b():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield server
     server.shutdown()
+    server.server_close()
 
 
 def pet_spec(base):
@@ -143,16 +145,29 @@ def test_leftover_collision_gets_suffix():
                 "auth": None, "timeout": 5, "cache": None, "retry": 0,
                 "retry_delay": 1.0, "wait_on_429": 0.0}
 
-    merged, _ = merge_entries([one("aa", ["x"]), one("bb", ["x", "aa_x"])])
+    merged, _ = merge_entries([one("aa", ["x"]), one("bb", ["x", "aa_x", "aa_x_2"])])
     names = [tool["name"] for tool in merged]
     assert len(names) == len(set(names))  # unique by construction
-    assert "aa_x_2" in names or "aa_x" in names
+    # aa: x -> aa_x; bb: x -> bb_x, aa_x -> aa_x_2, aa_x_2 -> aa_x_2_2
+    assert names == ["aa_x", "bb_x", "aa_x_2", "aa_x_2_2"]
 
 
 def test_tools_carry_api_label(api_a, api_b):
     merged, _ = merge_entries([entry("alpha", api_a), entry("beta", api_b)])
     labels = {tool["api"] for tool in merged}
     assert labels == {"alpha", "beta"}
+
+
+def test_server_takes_its_own_copy_of_entries(api_a):
+    """Cagiran listeyi sonradan bosaltirsa bile sunucu health raporunu korur."""
+    e = entry("solo", api_a)
+    caller_list = [e]
+    agg = AggregatedServer(caller_list)
+    agg.handle_message({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    agg.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    caller_list.clear()             # cagiran kendi listesini bosatti
+    report = json.loads(call(agg, "mcpify_health", {})["result"]["content"][0]["text"])
+    assert report["api_count"] == 1  # sunucunun kopyasi ayri — etkilendi mi?
 
 
 def test_empty_entries_rejected():
@@ -221,6 +236,49 @@ def test_lazy_search_matches_api_label(api_a, api_b):
     response = call(agg, "mcpify_search_tools", {"query": "beta"})
     text = response["result"]["content"][0]["text"]
     assert "beta" in text
+
+
+def test_lazy_search_matches_label_even_without_prefix(api_a):
+    """Cakisma yoksa isimlerde etiket YOKTUR; eslesme yalnizca api alanindan gelir."""
+    agg = aggregate(entry("zeta", api_a), lazy=True)
+    response = call(agg, "mcpify_search_tools", {"query": "zeta"})
+    text = response["result"]["content"][0]["text"]
+    assert "list_pets" in text  # bare name found via the api label
+
+
+def test_health_probes_apis_concurrently(api_a):
+    """Iki yavas API ~max(sure)s'te doner (1.0s degil ~0.4s) — README'deki paralel iddiasi."""
+    import time as _time
+
+    class SlowRecords(Records):
+        def do_GET(self):
+            _time.sleep(0.4)
+            Records.do_GET(self)
+
+    def slow_server(name):
+        srv = http.server.HTTPServer(("127.0.0.1", 0), SlowRecords)
+        srv.name = name
+        srv.payload = [{"id": 1}]
+        srv.requests = []
+        srv.root_status = 200
+        return srv
+
+    slow_a = slow_server("S1")
+    slow_b = slow_server("S2")
+    for s in (slow_a, slow_b):
+        threading.Thread(target=s.serve_forever, daemon=True).start()
+    try:
+        agg = aggregate(entry("s1", slow_a), entry("s2", slow_b))
+        started = _time.monotonic()
+        response = call(agg, "mcpify_health", {})
+        wall = _time.monotonic() - started
+        assert response["result"].get("isError") is not True
+        assert wall < 0.7, f"probe'lar sirali calisiyor: {wall:.2f}s"
+    finally:
+        slow_a.shutdown()
+        slow_a.server_close()
+        slow_b.shutdown()
+        slow_b.server_close()
 
 
 def test_env_flag_applies_to_multi_api(tmp_path, serve_recorder, api_a, api_b, monkeypatch):

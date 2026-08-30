@@ -63,6 +63,7 @@ def api():
     thread.start()
     yield f"http://127.0.0.1:{server.server_port}/v1"
     server.shutdown()
+    server.server_close()
 
 
 @pytest.fixture()
@@ -106,7 +107,7 @@ def test_post_with_body(server):
     pet = json.loads(response["result"]["content"][0]["text"])
     assert pet["id"] == 42 and pet["name"] == "Milo"
     # the fake API must have received a proper JSON POST
-    post = [r for r in FakePetAPI.seen if r["method"] == "POST"][0]
+    post = next(r for r in FakePetAPI.seen if r["method"] == "POST")
     assert post["path"] == "/v1/pets"
     assert post["body"] == {"name": "Milo", "kind": "cat"}
 
@@ -156,7 +157,7 @@ def test_bearer_auth_reaches_the_api(api, tmp_path):
     finally:
         monkeypatch.undo()
     assert response["result"].get("isError") is not True
-    post = [r for r in FakePetAPI.seen if r["method"] == "POST"][0]
+    post = next(r for r in FakePetAPI.seen if r["method"] == "POST")
     assert post["authorization"] == "Bearer super-secret"
 
 

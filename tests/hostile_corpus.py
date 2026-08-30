@@ -13,9 +13,9 @@ import time
 
 sys.path.insert(0, "/home/user/mcpify")
 
-from mcpify.cli import _base_url  # noqa: E402
-from mcpify.spec import SpecError  # noqa: E402
-from mcpify.tools import spec_to_tools  # noqa: E402
+from mcpify.cli import _base_url
+from mcpify.spec import SpecError
+from mcpify.tools import spec_to_tools
 
 
 def make_args(**kw):
@@ -210,13 +210,19 @@ SPEC_DEPRECATED = {
                                "deprecated": True, "responses": {"200": {"description": "ok"}}}}},
 }
 def c2_test():
+    import json as _json
+    import tempfile
     from contextlib import redirect_stdout
+    from pathlib import Path
 
     from mcpify import cli as cli_mod
-    # doctor ciktisinda deprecated uyarisi var mi?
-    buf = io.StringIO()
-    with redirect_stdout(buf), contextlib.suppress(SystemExit):
-        cli_mod.main(["doctor", "/tmp/doctor-test.json"])
+    with tempfile.TemporaryDirectory() as tmp:
+        spec_path = Path(tmp) / "deprecated-spec.json"
+        spec_path.write_text(_json.dumps(SPEC_DEPRECATED), encoding="utf-8")
+        # doctor ciktisinda deprecated uyarisi var mi?
+        buf = io.StringIO()
+        with redirect_stdout(buf), contextlib.suppress(SystemExit):
+            cli_mod.main(["doctor", str(spec_path)])
     return "deprecated operation" in buf.getvalue() or "deprecated" in buf.getvalue()
 
 

@@ -146,7 +146,7 @@ def test_http_date_retry_after_never_waits(rate_api, monkeypatch):
     def date_retry_after(self, keyword, value):
         if keyword == "Retry-After" and self.command == "GET":
             return real(self, keyword, "Wed, 21 Oct 2026 07:28:00 GMT")
-        real(self, keyword, value)
+        return real(self, keyword, value)
 
     RateLimitedAPI.send_header = date_retry_after
     try:

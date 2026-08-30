@@ -45,12 +45,12 @@ PREVIEW_TOOL = "mcpify_preview_request"
 HEALTH_TOOL = "mcpify_health"
 
 
-def _public(tool: dict) -> dict:
+def _public(tool: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in tool.items() if not k.startswith("_")}
 
 
-def _annotations(read_only: bool, open_world: bool, destructive: bool, idempotent: bool, title: str) -> dict:
-    out: dict = {"title": title}
+def _annotations(read_only: bool, open_world: bool, destructive: bool, idempotent: bool, title: str) -> dict[str, Any]:
+    out: dict[str, Any] = {"title": title}
     out.update(
         readOnlyHint=read_only,
         destructiveHint=destructive,
@@ -65,12 +65,12 @@ class ApiServer:
 
     def __init__(
         self,
-        spec: dict,
+        spec: dict[str, Any],
         base_url: str,
         server_name: str = "mcpify",
         auth: AuthProvider | None = None,
         timeout: float = 30.0,
-        tools: list[dict] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         lazy: bool = False,
         enable_preview: bool = False,
         cache_ttl: float = 0.0,
@@ -102,7 +102,7 @@ class ApiServer:
         self.retry_delay = retry_delay
         self.wait_on_429 = wait_on_429
         self.response_format = response_format
-        self.meta_tools: dict[str, dict] = {t["name"]: t for t in self._build_meta_tools()}
+        self.meta_tools: dict[str, dict[str, Any]] = {t["name"]: t for t in self._build_meta_tools()}
         if lazy:
             listed = [SEARCH_TOOL, SCHEMA_TOOL, CALL_TOOL]
         else:
@@ -114,7 +114,7 @@ class ApiServer:
         self._initialized = False
 
     # -- meta tool descriptors -------------------------------------------
-    def _build_meta_tools(self) -> list[dict]:
+    def _build_meta_tools(self) -> list[dict[str, Any]]:
         search = {
             "name": SEARCH_TOOL,
             "description": (
@@ -202,12 +202,12 @@ class ApiServer:
     def tool_count(self) -> int:
         return len(self.tools)
 
-    def public_tools(self) -> list[dict]:
+    def public_tools(self) -> list[dict[str, Any]]:
         lookup = {**self.by_name, **self.meta_tools}
         return [_public(lookup[name]) for name in self.listed_names]
 
     # -- tool execution ----------------------------------------------------
-    def run_tool(self, name: str, arguments: dict) -> dict:
+    def run_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Execute any listed tool and return a full MCP tool-result payload."""
         if name in self.meta_tools:
             if name not in self.listed_names:
@@ -223,7 +223,7 @@ class ApiServer:
             )
         return self._execute_real(tool, arguments)
 
-    def _context_for(self, tool: dict) -> dict:
+    def _context_for(self, _tool: dict[str, Any]) -> dict[str, Any]:
         """Execution context for one tool: base URL, auth and tuning.
 
         A plain ApiServer has exactly one context (its own); the
@@ -240,7 +240,7 @@ class ApiServer:
             "wait_on_429": self.wait_on_429,
         }
 
-    def _send(self, tool: dict, arguments: dict, context: dict) -> dict:
+    def _send(self, tool: dict[str, Any], arguments: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
         auth = context["auth"]
         request = build_request(context["base"], tool["_meta"], arguments, auth)
         if auth is not None:
@@ -271,11 +271,11 @@ class ApiServer:
             )
         return result
 
-    def _execute_real(self, tool: dict, arguments: dict) -> dict:
+    def _execute_real(self, tool: dict[str, Any], arguments: dict[str, Any]) -> dict[str, Any]:
         result = self._send(tool, arguments, self._context_for(tool))
         return self._payload_for(tool, result)
 
-    def _payload_for(self, tool: dict, result: dict) -> dict:
+    def _payload_for(self, tool: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
         status = result["status"]
         if status == 0 or status >= 400:
             text, _ = format_result(result)
@@ -309,7 +309,7 @@ class ApiServer:
         text, is_error = format_result(result)
         return self._text(text, is_error=is_error)
 
-    def _run_meta(self, name: str, arguments: dict) -> dict:
+    def _run_meta(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if name == SEARCH_TOOL:
             return self._search(arguments)
         if name == SCHEMA_TOOL:
@@ -322,7 +322,7 @@ class ApiServer:
             return self._health()
         raise KeyError(name)  # unreachable: meta_tools keys are exactly these
 
-    def _health(self) -> dict:
+    def _health(self) -> dict[str, Any]:
         import time as _time
 
         started = _time.monotonic()
@@ -354,7 +354,7 @@ class ApiServer:
 
     # -- lazy mode internals ---------------------------------------------
     @staticmethod
-    def _score(query: str, tool: dict) -> int:
+    def _score(query: str, tool: dict[str, Any]) -> int:
         """Deterministic keyword score: every token must match somewhere."""
         meta = tool["_meta"]
         haystack = " ".join(
@@ -374,14 +374,14 @@ class ApiServer:
             score += 2
         return score
 
-    def _search(self, arguments: dict) -> dict:
+    def _search(self, arguments: dict[str, Any]) -> dict[str, Any]:
         query = str(arguments.get("query") or "").strip()
         tag = str(arguments.get("tag") or "").strip().lower()
         limit = arguments.get("limit", 10)
         if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
             raise RequestError("'limit' must be a positive integer (1-25)")
         limit = min(limit, 25)
-        scored: list[tuple[int, dict]] = []
+        scored: list[tuple[int, dict[str, Any]]] = []
         for tool in self.tools:
             meta = tool["_meta"]
             if tag and not any(entry.lower() == tag for entry in meta["tags"]):
@@ -409,7 +409,7 @@ class ApiServer:
         text = json.dumps(entries, ensure_ascii=False, indent=2)
         return self._text(f"{len(entries)} tool(s){suffix}\n{text}")
 
-    def _resolve_target(self, arguments: dict, caller: str) -> dict:
+    def _resolve_target(self, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
         name = arguments.get("name")
         if not isinstance(name, str) or not name.strip():
             raise RequestError(f"'name' is required (the tool to {caller})")
@@ -422,11 +422,11 @@ class ApiServer:
             raise RequestError(f"unknown tool '{name}'.{hint}")
         return tool
 
-    def _get_schema(self, arguments: dict) -> dict:
+    def _get_schema(self, arguments: dict[str, Any]) -> dict[str, Any]:
         tool = self._resolve_target(arguments, "inspect")
         return self._text(json.dumps(_public(tool), ensure_ascii=False, indent=2))
 
-    def _lazy_call(self, arguments: dict) -> dict:
+    def _lazy_call(self, arguments: dict[str, Any]) -> dict[str, Any]:
         tool = self._resolve_target(arguments, "call")
         inner = arguments.get("arguments")
         if inner is None:
@@ -436,9 +436,9 @@ class ApiServer:
         return self._execute_real(tool, inner)
 
     # -- preview (dry run) -------------------------------------------------
-    def _mask_request(self, request: dict, auth: AuthConfig | OAuth2ClientCredentials | None = None) -> dict:
+    def _mask_request(self, request: dict[str, Any], auth: AuthConfig | OAuth2ClientCredentials | None = None) -> dict[str, Any]:
         auth = auth if auth is not None else self.auth
-        headers: dict = {}
+        headers: dict[str, Any] = {}
         for key, value in request["headers"].items():
             if key.lower() == "authorization":
                 scheme = value.split(" ", 1)[0]
@@ -455,7 +455,7 @@ class ApiServer:
             url = re.sub(rf"([?&]{re.escape(name)}=)[^&]*", r"\1***", url)
         return {**request, "headers": headers, "url": url}
 
-    def _preview(self, arguments: dict) -> dict:
+    def _preview(self, arguments: dict[str, Any]) -> dict[str, Any]:
         tool = self._resolve_target(arguments, "preview")
         inner = arguments.get("arguments") or {}
         if not isinstance(inner, dict):
@@ -477,19 +477,19 @@ class ApiServer:
         return self._text("\n".join(lines))
 
     # -- MCP plumbing -----------------------------------------------------
-    def _result(self, request_id: int | str | None, payload: dict) -> dict:
+    def _result(self, request_id: int | str | None, payload: dict[str, Any]) -> dict[str, Any]:
         return {"jsonrpc": "2.0", "id": request_id, "result": payload}
 
-    def _error(self, request_id: int | str | None, code: int, message: str) -> dict:
+    def _error(self, request_id: int | str | None, code: int, message: str) -> dict[str, Any]:
         return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
 
-    def _text(self, text: str, is_error: bool = False) -> dict:
-        payload: dict = {"content": [{"type": "text", "text": text}]}
+    def _text(self, text: str, is_error: bool = False) -> dict[str, Any]:
+        payload: dict[str, Any] = {"content": [{"type": "text", "text": text}]}
         if is_error:
             payload["isError"] = True
         return payload
 
-    def handle_message(self, message: dict) -> dict | None:
+    def handle_message(self, message: dict[str, Any]) -> dict[str, Any] | None:
         method = message.get("method", "")
         request_id = message.get("id")
         params = message.get("params") or {}
@@ -543,7 +543,7 @@ class ApiServer:
             if not line:
                 continue
             decoded: Any
-            response: dict | None
+            response: dict[str, Any] | None
             try:
                 decoded = json.loads(line)
             except json.JSONDecodeError:
@@ -562,7 +562,7 @@ class ApiServer:
                 output_stream.write(json.dumps(response, ensure_ascii=False) + "\n")
                 output_stream.flush()
 
-    def _handle_batch(self, items: list) -> list:
+    def _handle_batch(self, items: list[Any]) -> list[Any]:
         """Legacy JSON-RPC batching: an array of requests on one line.
 
         The current MCP spec removed batching, but gateways still emit
@@ -589,7 +589,7 @@ def serve(
     name: str = "mcpify",
     auth: AuthProvider | None = None,
     timeout: float = 30.0,
-    tools: list[dict] | None = None,
+    tools: list[dict[str, Any]] | None = None,
     lazy: bool = False,
     enable_preview: bool = False,
     cache_ttl: float = 0.0,

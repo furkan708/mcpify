@@ -6,6 +6,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-08-30
+
+### Fixed — found by the strict-audit round
+- **`mcpify init` showed no prompts** in an interactive terminal: the
+  wizard read answers without ever printing its questions (a blank
+  terminal). Prompts are now displayed; a regression test pins every
+  question text.
+- **Config root validation:** a `.mcpify.json` whose root is not a
+  table (e.g. an array) now fails with a clear
+  `root must be a table, got list` message instead of a distant
+  AttributeError.
+- **OAuth2 token header under `python -O`:** an internal `assert`
+  guarding the fetched token is now an explicit error (asserts vanish
+  under optimization flags).
+- **XML hardening:** documents declaring a DTD/`<!ENTITY` are never
+  parsed (billion-laughs class); the raw body is returned untouched
+  and `--format xml` states why. Pinned by a regression test.
+- **`AggregatedServer` copies the caller's entries list** — later
+  caller mutations can no longer corrupt a running server.
+
+### Changed — audit tooling at maximum strictness
+- mypy moved to `strict = true` + `warn_unreachable` (127 new errors
+  fixed: full generics, `Any`-returns, a hostile-input guard mypy
+  mistook for dead code now typed honestly).
+- ruff: `target-version` corrected py39→py310 and the rule set expanded
+  (bugbear-bear, security `S`, `ARG`, `PERF`, `FURB`, `RUF`, …) — every
+  finding fixed or justified inline (`noqa` with a reason).
+- Test hardening from a hand-rolled mutation check (11 mutants, all
+  killed): exact collision-suffix names, label-only lazy search, the
+  health probe's documented concurrency, entries-aliasing protection.
+- 3.10 fallback TOML parser parity-tested against `tomllib` behavior;
+  wizard number-validation branches pinned; structured API `errors[]`
+  messages now flow into remediation hints (tested).
+- 10 new tests (327 total, twenty suites); fixture sockets closed
+  deterministically; `tests/hostile_corpus.py` C2 check actually
+  writes its spec now (it had been checking a missing file since
+  v1.0.x).
+
 ## [1.9.0] - 2026-08-30
 
 ### Added — multi-API aggregation, the gateway feature, for free

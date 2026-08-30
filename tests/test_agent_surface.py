@@ -177,6 +177,7 @@ def base():
     thread.start()
     yield f"http://127.0.0.1:{server.server_port}"
     server.shutdown()
+    server.server_close()
 
 
 def make(base, **kwargs):
@@ -322,6 +323,19 @@ def test_plain_error_without_advice_gets_no_remediation_block(base):
 
     result = {"status": 409, "body": "{}", "json": {}, "headers": {}}
     assert remediation(result, None, None) == ""
+
+
+def test_remediation_surfaces_structured_api_error_messages():
+    """API'nin {"errors":[{"message":...}]} formati ipucuna tasinir."""
+    from mcpify.http_client import remediation
+
+    result = {
+        "status": 422, "headers": {},
+        "json": {"errors": [{"message": "currency must be USD"}]},
+        "body": '{"errors":[{"message":"currency must be USD"}]}',
+    }
+    text = remediation(result, None, None)
+    assert "currency must be USD" in text
 
 
 def test_remediation_404_suggests_closest_paths_directly(base):

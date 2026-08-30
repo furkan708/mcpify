@@ -38,7 +38,7 @@ commands:
   :q | :quit          leave"""
 
 
-def _fmt_type(prop: dict) -> str:
+def _fmt_type(prop: dict[str, Any]) -> str:
     kind = prop.get("type", "string")
     if "enum" in prop:
         return "one of: " + " | ".join(str(v) for v in prop["enum"])
@@ -72,17 +72,17 @@ def _cast(kind: str, raw: str) -> Any:
 
 
 def _collect_arguments(
-    tool: dict,
+    tool: dict[str, Any],
     prompt: Callable[[str], str],
     say: Callable[[str], None],
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Prompt for each input-schema property. Returns the arguments dict,
     or None when the user aborts the tool (empty value for a required
     path parameter is left to build_request's error path)."""
     schema = tool.get("inputSchema") or {}
-    properties: dict = schema.get("properties") or {}
-    required: list = schema.get("required") or []
-    arguments: dict = {}
+    properties: dict[str, Any] = schema.get("properties") or {}
+    required: list[Any] = schema.get("required") or []
+    arguments: dict[str, Any] = {}
     for name, prop in properties.items():
         prop = prop or {}
         kind = str(prop.get("type", "string"))
@@ -111,7 +111,7 @@ def _collect_arguments(
                 # required with no value: let build_request produce its
                 # precise error (missing path parameter / body) — same
                 # message an agent would receive
-                return arguments if arguments else {}
+                return arguments or {}
             try:
                 arguments[name] = _cast(kind, raw)
                 break
@@ -120,7 +120,7 @@ def _collect_arguments(
     return arguments
 
 
-def _render_result(payload: dict, elapsed: float, out: Callable[[str], None]) -> None:
+def _render_result(payload: dict[str, Any], elapsed: float, out: Callable[[str], None]) -> None:
     text = ""
     for block in payload.get("content") or []:
         if isinstance(block, dict) and block.get("type") == "text":
@@ -151,7 +151,7 @@ def run(
     lookup = {**server.by_name, **server.meta_tools}
     tools = [lookup[name] for name in server.listed_names]
     out(f"mcpify try — {len(tools)} tools. Type :h for help, :q to quit.")
-    selected: dict | None = None
+    selected: dict[str, Any] | None = None
 
     def list_tools() -> None:
         for index, tool in enumerate(tools, 1):
@@ -230,7 +230,7 @@ def run(
         _execute(server, target["name"], arguments, out)
 
 
-def _resolve(reference: str, tools: list[dict]) -> dict | None:
+def _resolve(reference: str, tools: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Match a selection by 1-based number or exact/case-insensitive name."""
     reference = reference.strip()
     if reference.isdigit():
@@ -248,7 +248,7 @@ def _resolve(reference: str, tools: list[dict]) -> dict | None:
     return None
 
 
-def _execute(server: Any, name: str, arguments: dict, out: Callable[[str], None]) -> None:
+def _execute(server: Any, name: str, arguments: dict[str, Any], out: Callable[[str], None]) -> None:
     started = time.monotonic()
     try:
         payload = server.run_tool(name, arguments)

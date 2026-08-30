@@ -41,6 +41,7 @@ def upstream():
     thread.start()
     yield f"http://127.0.0.1:{server.server_port}/v1"
     server.shutdown()
+    server.server_close()
 
 
 @pytest.fixture()
@@ -55,6 +56,7 @@ def mcp_http(upstream):
     thread.start()
     yield f"http://127.0.0.1:{httpd.server_port}/"
     httpd.shutdown()
+    httpd.server_close()
 
 
 def post(base, payload, headers=None, raw_body=None, method="POST"):
@@ -127,6 +129,8 @@ def test_uninitialized_request_rejected(mcp_http):
         assert body["error"]["code"] == -32002
     finally:
         httpd.shutdown()
+        httpd.server_close()
+    httpd.server_close()
 
 
 def test_stateless_request_carries_version_in_meta(mcp_http):
@@ -140,7 +144,7 @@ def test_stateless_request_carries_version_in_meta(mcp_http):
 
 
 def test_notification_returns_202_empty(mcp_http):
-    status, body, headers = post(mcp_http, rpc("notifications/initialized", request_id=None))
+    status, body, _headers = post(mcp_http, rpc("notifications/initialized", request_id=None))
     assert status == 202
     assert body is None
 
@@ -150,13 +154,13 @@ def test_notification_returns_202_empty(mcp_http):
 # ---------------------------------------------------------------------------
 
 def test_get_returns_405(mcp_http):
-    status, body, headers = post(mcp_http, None, method="GET", raw_body=b"")
+    status, _body, headers = post(mcp_http, None, method="GET", raw_body=b"")
     assert status == 405
     assert "POST" in headers["Allow"]
 
 
 def test_delete_returns_405(mcp_http):
-    status, _, headers = post(mcp_http, None, method="DELETE", raw_body=b"")
+    status, _body, _headers = post(mcp_http, None, method="DELETE", raw_body=b"")
     assert status == 405
 
 
@@ -199,6 +203,8 @@ def test_oversized_body_413(mcp_http):
         assert body["error"]["code"] == -32600
     finally:
         httpd.shutdown()
+        httpd.server_close()
+    httpd.server_close()
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +244,7 @@ def protected_http(upstream):
     thread.start()
     yield f"http://127.0.0.1:{httpd.server_port}/"
     httpd.shutdown()
+    httpd.server_close()
 
 
 def test_missing_token_401_with_www_authenticate(protected_http):

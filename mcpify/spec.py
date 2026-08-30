@@ -19,7 +19,7 @@ class SpecError(ValueError):
     """Raised when an OpenAPI document cannot be loaded or is invalid."""
 
 
-def load_spec(source: str) -> dict:
+def load_spec(source: str) -> dict[str, Any]:
     """Load an OpenAPI document from a file path or an http(s) URL.
 
     JSON is always supported; YAML requires PyYAML.
@@ -27,7 +27,7 @@ def load_spec(source: str) -> dict:
     text: str
     if source.startswith(("http://", "https://")):
         try:
-            with urllib.request.urlopen(source, timeout=15) as response:
+            with urllib.request.urlopen(source, timeout=15) as response:  # noqa: S310 — operator-side URL
                 text = response.read().decode("utf-8")
         except Exception as err:
             raise SpecError(f"could not fetch '{source}': {err}") from err
@@ -64,7 +64,7 @@ def load_spec(source: str) -> dict:
     return data
 
 
-def resolve_ref(spec: dict, ref: str) -> Any:
+def resolve_ref(spec: dict[str, Any], ref: str) -> Any:
     """Resolve a local reference like '#/components/schemas/Pet'."""
     if not ref.startswith("#/"):
         raise SpecError(
@@ -81,7 +81,7 @@ def resolve_ref(spec: dict, ref: str) -> Any:
     return node
 
 
-def resolve_schema(schema: Any, spec: dict, depth: int = 0) -> Any:
+def resolve_schema(schema: Any, spec: dict[str, Any], depth: int = 0) -> Any:
     """Deeply resolve internal $ref pointers inside a schema."""
     if depth > 20:
         raise SpecError("circular $ref chain too deep (max 20)")
@@ -127,7 +127,7 @@ def resolve_schema(schema: Any, spec: dict, depth: int = 0) -> Any:
     return resolved
 
 
-def iter_operations(spec: dict) -> Iterator[tuple[str, str, dict]]:
+def iter_operations(spec: dict[str, Any]) -> Iterator[tuple[str, str, dict[str, Any]]]:
     """Yield (method, path, operation) for every operation in the document."""
     for path, path_item in spec.get("paths", {}).items():
         if not isinstance(path_item, dict):
@@ -138,7 +138,7 @@ def iter_operations(spec: dict) -> Iterator[tuple[str, str, dict]]:
                 yield method.upper(), path, operation
 
 
-def spec_servers(spec: dict) -> list[str]:
+def spec_servers(spec: dict[str, Any]) -> list[str]:
     """Return the declared server URLs (may be empty)."""
     servers = spec.get("servers") or []
     return [s.get("url", "") for s in servers if isinstance(s, dict)]
@@ -173,9 +173,9 @@ def discover_spec(url: str, timeout: float = 5.0) -> tuple[str, str]:
         candidate = origin + path
         tried.append(path)
         try:
-            with urlopen(candidate, timeout=timeout) as response:
+            with urlopen(candidate, timeout=timeout) as response:  # noqa: S310 — origin already scheme-checked
                 head = response.read(4096).decode("utf-8", "replace")
-        except Exception:  # noqa: BLE001 — any failure just means "not here"
+        except Exception:  # noqa: S112 — ulasilamayan aday: siradaki yol denenir
             continue
         lowered = head.lower()
         if '"openapi"' in lowered or '"swagger"' in lowered or "openapi:" in lowered or "swagger:" in lowered:

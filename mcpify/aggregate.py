@@ -28,7 +28,7 @@ from .http_client import execute
 from .tools import META_TOOL_NAMES, slugify
 
 
-def merge_entries(entries: list[dict]) -> tuple[list[dict], dict[str, int]]:
+def merge_entries(entries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Merge per-API tool lists into one surface.
 
     Mutates the tools: sets `tool["api"] = label`, renames colliding
@@ -44,7 +44,7 @@ def merge_entries(entries: list[dict]) -> tuple[list[dict], dict[str, int]]:
     conflicts = {name for name, owners in claimed.items() if len(owners) > 1}
 
     taken: set[str] = set(META_TOOL_NAMES)
-    merged: list[dict] = []
+    merged: list[dict[str, Any]] = []
     owners: dict[str, int] = {}
     for index, entry in enumerate(entries):
         for tool in entry["tools"]:
@@ -68,7 +68,7 @@ class AggregatedServer(ApiServer):
 
     def __init__(
         self,
-        entries: list[dict],
+        entries: list[dict[str, Any]],
         server_name: str = "mcpify",
         lazy: bool = False,
         enable_preview: bool = False,
@@ -76,7 +76,7 @@ class AggregatedServer(ApiServer):
     ) -> None:
         if not entries:
             raise ValueError("aggregation needs at least one API entry")
-        self.entries = entries
+        self.entries = list(entries)  # caller's list'ten bagimsiz kopya
         merged, owners = merge_entries(entries)
         self._owners = owners
         first = entries[0]
@@ -95,7 +95,7 @@ class AggregatedServer(ApiServer):
             response_format=response_format,
         )
 
-    def _context_for(self, tool: dict) -> dict:
+    def _context_for(self, tool: dict[str, Any]) -> dict[str, Any]:
         entry = self.entries[self._owners[tool["name"]]]
         return {
             "base": entry["base"],
@@ -107,10 +107,10 @@ class AggregatedServer(ApiServer):
             "wait_on_429": entry["wait_on_429"],
         }
 
-    def _health(self) -> dict:
+    def _health(self) -> dict[str, Any]:
         """Probe every API concurrently and report per-API reachability."""
 
-        def probe(entry: dict) -> dict:
+        def probe(entry: dict[str, Any]) -> dict[str, Any]:
             started = time.monotonic()
             result = execute(
                 {

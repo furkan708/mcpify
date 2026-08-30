@@ -18,15 +18,16 @@ from __future__ import annotations
 
 import json
 import xml.etree.ElementTree as ET
+from typing import Any
 
 
-def xml_to_dict(element: ET.Element) -> dict | str:
-    node: dict = {}
+def xml_to_dict(element: ET.Element) -> dict[str, Any] | str:
+    node: dict[str, Any] = {}
     for key, value in element.attrib.items():
         node["@" + key.split("}")[-1]] = value
     children = list(element)
     if children:
-        grouped: dict[str, list] = {}
+        grouped: dict[str, list[Any]] = {}
         for child in children:
             name = child.tag.split("}")[-1]
             grouped.setdefault(name, []).append(xml_to_dict(child))
@@ -67,8 +68,16 @@ def convert(body: str, parsed_json: object, content_type: str, fmt: str) -> tupl
         return body, None
     if not looks_like_xml(body, content_type):
         return body, None
+    lowered_head = body[:2048].lower()
+    if "<!doctype" in lowered_head or "<!entity" in lowered_head:
+        # DTD/entity iceren dokumanlar donusturulmez (billion-laughs sinifi
+        # XML saldirilari); ham govde aynen doner — parse edilmez
+        if fmt == "xml":
+            return body + "\n\n[xml conversion skipped: document declares a DTD]", None
+        return body, None
     try:
-        root = ET.fromstring(body)
+        # S314: DTD/entity icerenler yukarida reddedildi; zero-dep geregi defusedxml yok
+        root = ET.fromstring(body)  # noqa: S314
     except ET.ParseError:
         if fmt == "xml":
             return body + "\n\n[xml conversion failed: body is not well-formed XML]", None
