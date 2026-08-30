@@ -122,9 +122,15 @@ def _parse_mini_toml(text: str) -> dict[str, Any]:
             try:
                 table[key] = int(value)
             except ValueError:
+                pass
+            else:
+                continue
+            try:
+                table[key] = float(value)  # e.g. rate-limit = 2.5
+            except ValueError:
                 raise ValueError(
                     f".mcpify.toml line {lineno}: unsupported value {value!r} "
-                    "(use strings, integers, booleans or string arrays)"
+                    "(use strings, integers, floats, booleans or string arrays)"
                 ) from None
     return data
 

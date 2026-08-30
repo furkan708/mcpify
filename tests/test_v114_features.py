@@ -394,7 +394,7 @@ def test_aggregate_context_carries_per_entry_redact_and_limiter(upstream):
 # ---------------------------------------------------------------------------
 
 def test_list_multi_api_human_with_cost(tmp_path, capsys):
-    spec_path = Path("examples/petstore.json").resolve()
+    spec_path = Path("examples/petstore.json").resolve().as_posix()  # TOML-safe on Windows
     config = tmp_path / ".mcpify.toml"
     config.write_text(
         f'[apis.a]\nspec = "{spec_path}"\n\n[apis.b]\nspec = "{spec_path}"\nrate-limit = 5\n')
@@ -406,7 +406,7 @@ def test_list_multi_api_human_with_cost(tmp_path, capsys):
 
 
 def test_list_multi_api_json_rows(tmp_path, capsys):
-    spec_path = Path("examples/petstore.json").resolve()
+    spec_path = Path("examples/petstore.json").resolve().as_posix()
     config = tmp_path / ".mcpify.toml"
     config.write_text(f'[apis.a]\nspec = "{spec_path}"\n\n[apis.b]\nspec = "{spec_path}"\n')
     cli_main(["list", "--config", str(config), "--json", "--cost"])
@@ -417,7 +417,7 @@ def test_list_multi_api_json_rows(tmp_path, capsys):
 
 
 def test_list_multi_api_without_cost_still_lists(tmp_path, capsys):
-    spec_path = Path("examples/petstore.json").resolve()
+    spec_path = Path("examples/petstore.json").resolve().as_posix()
     config = tmp_path / ".mcpify.toml"
     config.write_text(f'[apis.a]\nspec = "{spec_path}"\n')
     cli_main(["list", "--config", str(config)])
