@@ -173,7 +173,14 @@ def test_mini_toml_parser_handles_generated_subset():
 
 def test_mini_toml_rejects_unsupported_values():
     with pytest.raises(ValueError, match="unsupported value"):
-        _parse_mini_toml("[serve]\nbad = 1.5\n")
+        _parse_mini_toml("[serve]\nbad = {x=1}\n")
+
+
+def test_mini_toml_accepts_floats():
+    # the tomllib-less fallback (Python 3.10) used to reject floats —
+    # `rate-limit = 2.5` is a legitimate config line
+    data = _parse_mini_toml("[serve]\nrate-limit = 2.5\ntimeout = 10\n")
+    assert data["serve"]["rate-limit"] == 2.5 and data["serve"]["timeout"] == 10
 
 
 def test_mini_toml_unsupported_escape_names_the_line_and_fix():
