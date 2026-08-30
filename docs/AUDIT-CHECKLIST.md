@@ -89,7 +89,7 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
   belongs above this layer (rationale in USAGE.md)
 
 ## 10. Test & validation
-- ✅ **461 passing tests across twenty-seven suites** (463 collected; one
+- ✅ **462 passing tests across twenty-seven suites** (464 collected; one
   live-integration test auto-skips offline, the OTel positive test skips
   without the optional extra) — full matrix in the README
 - ✅ Quality gates on every push: ruff, mypy `strict`, CodeQL,

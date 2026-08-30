@@ -2,7 +2,7 @@
 
 # mcpify
 
-[![Tests](https://img.shields.io/badge/tests-461%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-462%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CI](https://github.com/furkan708/mcpify/actions/workflows/ci.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
 [![PyPI](https://img.shields.io/pypi/v/mcpify-openapi)](https://pypi.org/project/mcpify-openapi/)
@@ -31,7 +31,7 @@ uvx --from mcpify-openapi mcpify list examples/petstore.json --cost
 
 Focused, production-ready, CLI-first: one job (OpenAPI → MCP), with the
 governance, token economics and operations around it that real deployments
-need. 461 tests across twenty-seven suites, two transports (stdio + HTTP
+need. 462 tests across twenty-seven suites, two transports (stdio + HTTP
 with SSE responses), dual MCP-spec compatibility, split read/write
 credentials (static and OAuth2), a policy layer, ETag-aware caching, safe
 retries, health probes, an audit trail, per-token tool RBAC and plugin
@@ -347,7 +347,7 @@ Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHEC
 
 ## Tests
 
-**461 passing**, plus one live-integration test that loads the real
+**462 passing**, plus one live-integration test that loads the real
 api.weather.gov document (auto-skipped when offline) and an OTel positive
 test that runs wherever the optional tracing extra is installed. Every
 suite runs on Python 3.10–3.12 across Linux and Windows; `ruff`, strict

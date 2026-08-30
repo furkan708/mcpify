@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plus total surface price (weather.gov 69 tools ~6,900 tok + petstore 19
   tools ~1,679 tok = ~8,579 tok in one line).
 - `fields`/`redact`/`rate-limit` in `[serve]`, `[apis.NAME]` and
-  `[envs.*]` with config-schema parity tests. 31 new tests — **461
+  `[envs.*]` with config-schema parity tests. 32 new tests — **462
   passing** across twenty-seven suites.
 
 ## [1.13.0] - 2026-08-30
