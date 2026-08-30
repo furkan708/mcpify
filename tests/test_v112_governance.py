@@ -141,12 +141,12 @@ def write_config(tmp_path, body):
 
 def test_tool_text_override_reaches_list_json(tmp_path, monkeypatch, capsys):
     spec = spec_with_summaries(tmp_path, [("list_things", "List things", "")])
-    write_config(tmp_path, f'''[tool-text.list_things]
-description = "Fetch the catalog of things."
-
-[serve]
-spec = "{spec}"
-''')
+    # literal string (single quotes): Windows paths carry backslashes that a
+    # TOML basic string would parse as escapes
+    write_config(tmp_path, f"[tool-text.list_things]\n"
+                 f'description = "Fetch the catalog of things."\n\n'
+                 f"[serve]\n"
+                 f"spec = '{spec}'\n")
     monkeypatch.chdir(tmp_path)  # `list` discovers .mcpify.toml from the cwd
     cli_main(["list", "--json"])  # spec comes from the config, like serve
     tools = json.loads(capsys.readouterr().out)
