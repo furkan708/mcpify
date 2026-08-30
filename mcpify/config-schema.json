@@ -160,7 +160,7 @@
         },
         "fields": {
           "type": "string",
-          "description": "Response projection: comma-separated top-level keys to keep in JSON responses (each item of a top-level array)."
+          "description": "Response projection: comma-separated field names to keep. Selected keys keep their value, non-selected containers stay transparent (they survive while they hold selected data), emptied containers and unmatched items drop."
         },
         "write-oauth2-token-url": {
           "type": "string",
@@ -180,6 +180,15 @@
             "basic",
             "body"
           ]
+        },
+        "redact": {
+          "type": "string",
+          "description": "comma-separated field names to mask in responses (values become '***', case-insensitive, every level)"
+        },
+        "rate-limit": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "client-side courtesy throttle: max upstream requests per second"
         }
       }
     },
@@ -337,7 +346,7 @@
           },
           "fields": {
             "type": "string",
-            "description": "Response projection: comma-separated top-level keys to keep in JSON responses (each item of a top-level array)."
+            "description": "Response projection: comma-separated field names to keep. Selected keys keep their value, non-selected containers stay transparent (they survive while they hold selected data), emptied containers and unmatched items drop."
           },
           "write-oauth2-token-url": {
             "type": "string",
@@ -357,6 +366,15 @@
               "basic",
               "body"
             ]
+          },
+          "redact": {
+            "type": "string",
+            "description": "comma-separated field names to mask in responses (values become '***', case-insensitive, every level)"
+          },
+          "rate-limit": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "client-side courtesy throttle: max upstream requests per second"
           }
         }
       }
@@ -494,7 +512,7 @@
           },
           "fields": {
             "type": "string",
-            "description": "Response projection: comma-separated top-level keys to keep in JSON responses (each item of a top-level array)."
+            "description": "Response projection: comma-separated field names to keep. Selected keys keep their value, non-selected containers stay transparent (they survive while they hold selected data), emptied containers and unmatched items drop."
           },
           "write-oauth2-token-url": {
             "type": "string",
@@ -514,13 +532,22 @@
               "basic",
               "body"
             ]
+          },
+          "redact": {
+            "type": "string",
+            "description": "comma-separated field names to mask in responses (values become '***', case-insensitive, every level)"
+          },
+          "rate-limit": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "client-side courtesy throttle: max upstream requests per second"
           }
         }
       }
     },
     "tool-text": {
       "type": "object",
-      "description": "Per-tool description overrides \u2014 the operator's last word on model-facing text. Keys are final tool names (aggregation prefixes included).",
+      "description": "Per-tool description overrides — the operator's last word on model-facing text. Keys are final tool names (aggregation prefixes included).",
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,

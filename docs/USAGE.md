@@ -912,6 +912,58 @@ getting `application/json`. The transport stays stateless — one event,
 then the stream closes. Server-initiated messages (a GET SSE stream with
 sessions) remain deliberately out of scope.
 
+### `--redact` — secrets never reach the model
+
+```bash
+mcpify serve spec.yaml --redact password,token,client_secret
+```
+
+Values whose key names one of the listed fields are masked with `***` at
+every level of every response — success and error bodies alike,
+case-insensitive (`Password`, `Client_Secret`). Arrays are masked in
+place, so indices stay stable for the agent. Projection runs first,
+redaction last: a field you asked for by name is still masked when it is
+a secret. This is the security boundary — `--fields` is only a
+projection. Per API: `redact = "password,token"` in `[apis.NAME]`.
+
+### `--rate-limit` — be kind to the upstream
+
+```bash
+mcpify serve spec.yaml --rate-limit 5      # max 5 requests/second
+```
+
+A thread-safe client-side throttle: every call waits for its slot before
+the request leaves — retries included, so a retrying call cannot burst
+the API either. In multi-API configs each upstream gets its own limiter;
+one API's budget never waits for another's slots. Combine with
+`--wait-on-429` for APIs that publish explicit Retry-After delays. Per
+API: `rate-limit = 2.5`.
+
+### `doctor --probe` — dial the API before you serve
+
+```bash
+mcpify doctor spec.yaml --probe --base-url https://api.example.com
+```
+
+After the static report, mcpify performs one argument-free GET (or the
+base URL when every GET needs arguments) and reports reachability. Any
+HTTP status proves the API is up — a 401 with no credentials configured
+is a working API; only a connection failure exits non-zero, so CI and
+shell scripts stop before serving something that cannot answer.
+`--json` includes the probe payload (`probe.status`,
+`probe.latency_seconds`).
+
+### `mcpify list` over a config — every surface, one run
+
+```bash
+mcpify list --config .mcpify.toml --cost
+```
+
+With `[apis.*]` sections, `list` previews every API: per-API tool tables,
+and with `--cost` a per-API plus total context price (live example:
+weather.gov 69 tools ~6,900 tokens + petstore 19 tools ~1,679 tokens =
+~8,579 tokens). `--json` emits one row per tool with its `api` label.
+
 ### `--otel` — one span per upstream call
 
 ```bash

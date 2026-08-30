@@ -37,6 +37,7 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
 
 ## 4. Response management & performance
 - ✅ Responses truncated at ~40k chars (context-blast guard)
+- ✅ `--redact` masks secret-named fields at every response level (success and error bodies); `--fields` projects; `--rate-limit` caps requests/second upstream
 - ✅ Structured output: outputSchema only when the spec documents 2xx JSON;
   structuredContent delivered with back-compat text; non-JSON body → tool error
 - ✅ Opt-in GET caching (`--cache-ttl`, bounded, GET+200), safe retries
@@ -88,7 +89,7 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
   belongs above this layer (rationale in USAGE.md)
 
 ## 10. Test & validation
-- ✅ **430 passing tests across twenty-six suites** (432 collected; one
+- ✅ **461 passing tests across twenty-seven suites** (463 collected; one
   live-integration test auto-skips offline, the OTel positive test skips
   without the optional extra) — full matrix in the README
 - ✅ Quality gates on every push: ruff, mypy `strict`, CodeQL,
@@ -122,4 +123,4 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
   wheel `twine check` PASSED; 3.10 fallback TOML parser parity-tested
 
 ---
-*Audited 2026-08-30 against v1.13.0. Re-run on every release.*
+*Audited 2026-08-31 against v1.14.0. Re-run on every release.*

@@ -25,7 +25,7 @@ from typing import Any
 
 from . import metrics
 from .api_server import ApiServer
-from .http_client import execute
+from .http_client import RateLimiter, execute
 from .tools import META_TOOL_NAMES, slugify
 
 
@@ -80,6 +80,10 @@ class AggregatedServer(ApiServer):
         self.entries = list(entries)  # caller's list'ten bagimsiz kopya
         merged, owners = merge_entries(entries)
         self._owners = owners
+        # one courtesy limiter PER upstream: API A's budget never waits
+        # for API B's slots (a shared limiter would couple unrelated APIs)
+        self._limiters = [RateLimiter(e["rate-limit"]) if e.get("rate-limit") else None
+                          for e in self.entries]
         first = entries[0]
         # The parent constructor wants a spec/base pair; the aggregator
         # routes every execution through _context_for, so these first
@@ -102,6 +106,8 @@ class AggregatedServer(ApiServer):
         self.entries = list(entries)
         merged, owners = merge_entries(entries)
         self._owners = owners
+        self._limiters = [RateLimiter(e["rate-limit"]) if e.get("rate-limit") else None
+                          for e in self.entries]
         self.reload_tools(merged)
 
     def _context_for(self, tool: dict[str, Any]) -> dict[str, Any]:
@@ -118,6 +124,8 @@ class AggregatedServer(ApiServer):
             "retry_delay": entry["retry_delay"],
             "wait_on_429": entry["wait_on_429"],
             "fields": entry.get("fields"),
+            "redact": entry.get("redact"),
+            "rate_limiter": self._limiters[self._owners[tool["name"]]],
         }
 
     def _health(self) -> dict[str, Any]:

@@ -77,6 +77,42 @@ def _mask(headers: dict[str, Any]) -> dict[str, Any]:
     return masked
 
 
+class RateLimiter:
+    """Thread-safe client-side throttle: at most ``rps`` requests/second.
+
+    A courtesy limiter for APIs without published quotas: every execute()
+    waits for its slot BEFORE the request leaves — including retries, so
+    a retrying call cannot burst the upstream either. Bounds this process
+    only; it is not a distributed rate limiter.
+    """
+
+    def __init__(
+        self,
+        rps: float,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        sleeper: Callable[[float], None] = time.sleep,
+    ) -> None:
+        if rps <= 0:
+            raise ValueError("rps must be positive")
+        self.rps = rps
+        self._min_interval = 1.0 / rps
+        self._clock = clock
+        self._sleeper = sleeper
+        self._lock = threading.Lock()
+        self._next_slot = 0.0
+
+    def wait(self) -> float:
+        """Reserve the next slot; sleep until it opens. Returns the delay."""
+        with self._lock:
+            now = self._clock()
+            delay = self._next_slot - now
+            self._next_slot = max(now, self._next_slot) + self._min_interval
+        if delay > 0:
+            self._sleeper(delay)
+        return max(0.0, delay)
+
+
 RETRYABLE_STATUS = frozenset({502, 503, 504})
 IDEMPOTENT_METHODS = frozenset({"GET", "PUT", "DELETE"})
 MAX_RETRIES = 5          # hard cap however large --retry is
@@ -172,6 +208,7 @@ def execute(
     retry: int = 0,
     retry_delay: float = 1.0,
     wait_on_429: float = 0.0,
+    rate_limit: RateLimiter | None = None,
 ) -> dict[str, Any]:
     """Perform the request and return {status, body, json, headers}.
 
@@ -183,12 +220,16 @@ def execute(
     wait_on_429 > 0, a 429 on an idempotent method is honored ONCE: the
     call sleeps min(Retry-After, wait_on_429) seconds (the API explicitly
     asked for the delay, so this is not a blind retry) and tries again;
-    a Retry-After longer than the cap returns the 429 untouched.
+    a Retry-After longer than the cap returns the 429 untouched. With a
+    rate_limit attached, every attempt (first call and retries alike)
+    first waits for a slot — the upstream never sees a burst.
     """
     attempts = max(0, min(retry, MAX_RETRIES))
     attempt = 0
     waited_429 = False
     while True:
+        if rate_limit is not None:
+            rate_limit.wait()
         result = _execute_once(request, timeout, cache)
         method = request.get("method", "GET").upper()
         if (
@@ -410,6 +451,29 @@ def project_json(data: Any, fields: frozenset[str]) -> Any:
                     kept.append(projected)
             # scalars inside a non-selected array carry no field: dropped
         return kept
+    return data
+
+
+def redact_json(data: Any, secrets: frozenset[str]) -> Any:
+    """Mask values whose KEY names a secret — at EVERY level.
+
+    Case-insensitive key match (``password``, ``Password``, ``Client_Secret``).
+    Matching values become ``"***"`` (``null`` stays ``null`` — masking an
+    absent value adds nothing); structure is otherwise untouched and array
+    lengths never change, so indices stay stable for the agent. Pairs with
+    ``--fields``: projection runs first, redaction last — a field you asked
+    for by name is still masked when it is a secret.
+    """
+    if not secrets:
+        return data
+    if isinstance(data, dict):
+        return {
+            key: ("***" if key.lower() in secrets and value is not None
+                  else redact_json(value, secrets))
+            for key, value in data.items()
+        }
+    if isinstance(data, list):
+        return [redact_json(item, secrets) for item in data]
     return data
 
 

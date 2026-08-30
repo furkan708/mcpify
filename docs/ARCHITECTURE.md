@@ -200,3 +200,27 @@ exist to make that one job production-ready *in both local and shared
 deployments*. Everything outside the job — API gateways, GUIs, OAuth2
 authorization-code flows, multi-API routing — is deliberately someone
 else's layer.
+
+## Module map
+
+```
+mcpify/
+├── spec.py            # OpenAPI loading, $ref resolution, operation walking
+├── tools.py           # operation -> MCP tool, argument -> HTTP request, cost estimates
+├── http_client.py     # execution (urllib), cache/retry/429, RateLimiter, OAuth2 flow,
+│                      #   projection (--fields), redaction (--redact), smart truncation
+├── api_server.py      # the MCP server core (JSON-RPC 2.0, policy, lazy meta tools)
+├── aggregate.py       # multi-API composition ([apis.*] -> one routed surface)
+├── http_transport.py  # Streamable HTTP transport (--http), JSON + SSE POST answers
+├── config.py          # .mcpify.toml loading, validation, env resolution
+├── cli.py             # list / serve / try / status / ui / mock / diff / doctor / init
+├── repl.py            # `mcpify try` interactive terminal REPL
+├── standalone.py      # `mcpify output-server` script generator
+├── convert.py         # XML -> JSON conversion
+├── diff.py            # spec diff with breaking verdicts
+├── mock.py            # schema-shaped fake API
+├── ui.py              # local web dashboard
+├── metrics.py         # Prometheus text format
+├── audit.py           # JSONL audit trail with argument fingerprints
+└── otel.py            # OpenTelemetry spans (optional extra)
+```

@@ -30,13 +30,22 @@ from . import audit, metrics, otel
 from .convert import convert as convert_format
 from .http_client import (
     OAuth2ClientCredentials,
+    RateLimiter,
     ResponseCache,
     execute,
     format_result,
     project_json,
+    redact_json,
     remediation,
 )
-from .tools import META_TOOL_NAMES, AuthConfig, RequestError, build_request, spec_to_tools
+from .tools import (
+    META_TOOL_NAMES,
+    AuthConfig,
+    RequestError,
+    build_request,
+    spec_to_tools,
+    tool_cost_tokens,
+)
 
 # Anything that can inject credentials into outgoing requests: the static
 # env-var credential or the OAuth2 client-credentials flow (duck-typed
@@ -92,6 +101,8 @@ class ApiServer:
         wait_on_429: float = 0.0,
         write_auth: AuthProvider | None = None,
         fields: frozenset[str] | None = None,
+        redact: frozenset[str] | None = None,
+        rate_limit: float | None = None,
     ) -> None:
         self.spec = spec
         self.base_url = base_url
@@ -102,8 +113,15 @@ class ApiServer:
         # privilege instead of one shared API identity
         self.write_auth: AuthProvider | None = write_auth
         # response projection (--fields): successful JSON responses keep
-        # only these top-level keys — token cuts without losing data
+        # only the requested fields — token cuts without losing the data
+        # you asked for
         self.fields = fields
+        # response redaction (--redact): values whose KEY names a secret
+        # are masked at every level — the model never sees them
+        self.redact = redact
+        # client-side courtesy throttle (--rate-limit RPS): one limiter
+        # per upstream; every execute() waits for a slot before dialing
+        self.rate_limiter = RateLimiter(rate_limit) if rate_limit else None
         self.timeout = timeout
         self.lazy = lazy
         # tools may be pre-filtered by the CLI policy layer; building them
@@ -302,6 +320,8 @@ class ApiServer:
             "retry_delay": self.retry_delay,
             "wait_on_429": self.wait_on_429,
             "fields": self.fields,
+            "redact": self.redact,
+            "rate_limiter": self.rate_limiter,
         }
 
     def _send(self, tool: dict[str, Any], arguments: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
@@ -321,6 +341,7 @@ class ApiServer:
             retry=context["retry"],
             retry_delay=context["retry_delay"],
             wait_on_429=context["wait_on_429"],
+            rate_limit=context.get("rate_limiter"),
         )
         # OAuth2 self-heal: a token that expired server-side (or was
         # revoked mid-flight) surfaces as 401 once. Drop the cached
@@ -337,6 +358,7 @@ class ApiServer:
                 retry=context["retry"],
                 retry_delay=context["retry_delay"],
                 wait_on_429=context["wait_on_429"],
+                rate_limit=context.get("rate_limiter"),
             )
         latency = time.monotonic() - started
         span.set_status(200 <= result["status"] < 400, f"HTTP {result['status']}")
@@ -351,6 +373,13 @@ class ApiServer:
             projected = project_json(result["json"], wanted)
             result = {**result, "json": projected,
                       "body": json.dumps(projected, ensure_ascii=False)}
+        secrets = context.get("redact")
+        if secrets and result.get("json") is not None:
+            # runs on success AND error bodies, after projection: whatever
+            # the model is about to read, secrets never survive to it
+            masked = redact_json(result["json"], secrets)
+            result = {**result, "json": masked,
+                      "body": json.dumps(masked, ensure_ascii=False)}
         return result
 
     def _metric_labels(self, tool: dict[str, Any]) -> dict[str, str]:
@@ -500,13 +529,20 @@ class ApiServer:
                 "tags": tool["_meta"]["tags"],
                 "readOnly": bool(tool.get("annotations", {}).get("readOnlyHint")),
                 "hasOutputSchema": "outputSchema" in tool,
+                # what this tool's full schema would add to context when
+                # pulled via get_tool_schema — search stays cheap, the
+                # price of the pull is visible BEFORE pulling
+                "cost_tokens": tool_cost_tokens(tool),
             }
             for _, tool in top
         ]
         total = len(scored)
         suffix = f" ({total} total matches)" if total > len(entries) else ""
+        pull = sum(entry["cost_tokens"] for entry in entries)
         text = json.dumps(entries, ensure_ascii=False, indent=2)
-        return self._text(f"{len(entries)} tool(s){suffix}\n{text}")
+        header = (f"{len(entries)} tool(s){suffix} — full schemas cost ~{pull} tokens "
+                  f"total; pull only what you need with {SCHEMA_TOOL}")
+        return self._text(f"{header}\n{text}")
 
     def _resolve_target(self, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
         name = arguments.get("name")

@@ -247,9 +247,15 @@ def _add_serve_options(p: argparse.ArgumentParser, with_http: bool) -> None:
                    help="with --cache-ttl: pre-call every GET tool that needs no arguments "
                    "right after startup (background threads)")
     p.add_argument("--fields", default=None, metavar="F1,F2",
-                   help="response projection: keep only these top-level keys in JSON responses "
-                   "(applies to each item of a top-level array; nested objects are untouched) — "
-                   "cuts tokens without losing the requested data")
+                   help="response projection: keep only the requested fields (selected keys keep "
+                   "their value, non-selected containers stay transparent, emptied containers "
+                   "drop) — cuts tokens without losing the requested data")
+    p.add_argument("--redact", default=None, metavar="F1,F2",
+                   help="response redaction: values whose key names one of these fields are masked "
+                   "with '***' at every level (case-insensitive) — the model never sees secrets")
+    p.add_argument("--rate-limit", type=float, default=None, metavar="RPS",
+                   help="client-side courtesy throttle: max requests/second toward the upstream "
+                   "(every call waits for a slot; retries included)")
     p.add_argument("--otel", nargs="?", const="http://localhost:4318/v1/traces", default=None,
                    metavar="ENDPOINT",
                    help="export one OpenTelemetry span per upstream API call via OTLP/HTTP "
@@ -500,7 +506,7 @@ def _build_entries(args: argparse.Namespace, data: dict[str, Any]) -> list[dict[
             ("oauth2_client_auth", "basic"), ("timeout", 30.0), ("cache_ttl", 0.0),
             ("retry", 0), ("retry_delay", 1.0), ("wait_on_429", 0.0),
             ("write_auth_env", None), ("write_auth_style", None), ("write_auth_name", None),
-            ("fields", None),
+            ("fields", None), ("redact", None), ("rate_limit", None),
             ("write_oauth2_token_url", None), ("write_oauth2_client_id_env", None),
             ("write_oauth2_client_secret_env", None), ("write_oauth2_scope", None),
             ("write_oauth2_client_auth", "basic"),
@@ -541,6 +547,8 @@ def _build_entries(args: argparse.Namespace, data: dict[str, Any]) -> list[dict[
             "label": label,
             "spec": spec,
             "fields": _parse_fields(ns.fields, f"apis.{label}.fields"),
+            "redact": _parse_fields(ns.redact, f"apis.{label}.redact"),
+            "rate-limit": (float(ns.rate_limit) if ns.rate_limit else None),
             "spec_path": ns.spec,
             "base": base,
             "auth": auth,
@@ -774,6 +782,52 @@ def _run_output_server(rest: list[str]) -> None:
     print(f"next: python3 {args.output}   (requires mcpify-openapi >= {MIN_MCPIFY})")
 
 
+def _pick_probe_operation(spec: dict[str, Any]) -> tuple[str, str] | None:
+    """First safe GET for --probe: no path params, no required params, no body."""
+    for method, path, operation in iter_operations(spec):
+        if method != "GET" or "{" in path or operation.get("requestBody"):
+            continue
+        params = list(operation.get("parameters") or [])
+        if any(param.get("required") for param in params):
+            continue
+        return method, path
+    return None
+
+
+def _doctor_probe(spec: dict[str, Any], base_url: str | None, timeout: float) -> dict[str, Any]:
+    """One live GET against the API: connectivity proof before you serve.
+
+    Any HTTP status proves reachability (a 401 with no credentials is a
+    working API); only a connection failure — or having nothing to probe —
+    is a failed pre-flight. Read-only by construction: argument-free GET
+    or the base URL.
+    """
+    from .http_client import execute
+
+    if not base_url:
+        return {"ok": False, "error": "no absolute base URL — pass --base-url"}
+    base_url = base_url.rstrip("/")
+    picked = _pick_probe_operation(spec)
+    if picked is not None:
+        method, path = picked
+        url = base_url + path
+    else:
+        method, path = "GET", "/"
+        url = base_url + "/"
+    started = time.monotonic()
+    result = execute(
+        {"method": method, "url": url, "headers": {"Accept": "application/json"}, "body": None},
+        timeout=timeout,
+    )
+    latency = time.monotonic() - started
+    status = int(result["status"])
+    out = {"ok": status != 0, "method": method, "path": path, "url": url,
+           "status": status, "latency_seconds": round(latency, 3)}
+    if status == 0:
+        out["error"] = "connection failed — check the URL, network and TLS"
+    return out
+
+
 def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "output-server":
@@ -791,7 +845,7 @@ def main(argv: list[str] | None = None) -> None:
 
     p_list = sub.add_parser("list", help="preview the tools that would be generated")
     p_list.add_argument("spec", nargs="?", help="path or URL of an OpenAPI document "
-                        "(optional when `spec` is set in the config)")
+                        "(optional when the config sets `spec` or [apis.*] sections)")
     p_list.add_argument("--tag", help="only operations with this tag")
     p_list.add_argument("--include", action="append", help="only these path prefixes (repeatable)")
     p_list.add_argument("--exclude", action="append", help="skip these path prefixes (repeatable)")
@@ -804,6 +858,7 @@ def main(argv: list[str] | None = None) -> None:
                         help="estimate the context cost of the surface (~4 chars/token) — "
                         "the price every agent pays in every tools/list")
     p_list.add_argument("--json", action="store_true", help="machine-readable output")
+    p_list.add_argument("--config", help="config file (auto-discovers .mcpify.toml/.yaml/.json in cwd when omitted)")
 
     p_serve = sub.add_parser("serve", help="start the MCP server on stdio (or --http for Streamable HTTP)")
     _add_serve_options(p_serve, with_http=True)
@@ -865,6 +920,11 @@ def main(argv: list[str] | None = None) -> None:
     p_doctor = sub.add_parser("doctor", help="inspect a spec and report problems")
     p_doctor.add_argument("spec", help="path or URL of an OpenAPI document")
     p_doctor.add_argument("--json", action="store_true", help="machine-readable output")
+    p_doctor.add_argument("--probe", action="store_true",
+                          help="live pre-flight: after the static report, call one safe GET "
+                          "operation against the API and report reachability")
+    p_doctor.add_argument("--base-url", default=None, help="override the base URL to probe")
+    p_doctor.add_argument("--timeout", type=float, default=10.0, help="probe timeout seconds")
 
     args = parser.parse_args(argv)
     tools: list[dict[str, Any]] = []  # status computes its own count
@@ -887,7 +947,7 @@ def main(argv: list[str] | None = None) -> None:
             _fail(str(err))
 
     entries: list[dict[str, Any]] | None = None
-    if args.command in ("serve", "try", "ui") and api_sections(config_data):
+    if args.command in ("list", "serve", "try", "ui") and api_sections(config_data):
         entries = _build_entries(args, config_data)
 
     if args.command in ("list", "serve", "try", "ui") and entries is None:
@@ -937,6 +997,43 @@ def main(argv: list[str] | None = None) -> None:
         from .tools import surface_cost_tokens, tool_cost_tokens
 
         want_cost = bool(getattr(args, "cost", False))
+        if entries is not None:
+            # multi-API preview: one line per API, the whole surface priced
+            if args.json:
+                rows = []
+                for entry_item in entries:
+                    for tool_item in entry_item["tools"]:
+                        row = {"api": entry_item["label"],
+                               "name": tool_item["name"],
+                               "method": tool_item["_meta"]["method"],
+                               "path": tool_item["_meta"]["path"],
+                               "deprecated": tool_item["_meta"]["deprecated"],
+                               "description": tool_item["description"]}
+                        if want_cost:
+                            row["cost_tokens"] = tool_cost_tokens(tool_item)
+                        rows.append(row)
+                print(json.dumps(rows, ensure_ascii=False, indent=2))
+                return
+            def _dim(s: str) -> str:
+                return f"\033[2m{s}\033[0m" if USE_COLOR else s
+            def _cyan(s: str) -> str:
+                return f"\033[36m{s}\033[0m" if USE_COLOR else s
+            all_tools = [tool_item for entry_item in entries for tool_item in entry_item["tools"]]
+            print(_dim(f"mcpify: {len(entries)} APIs, {len(all_tools)} tools"))
+            print(_dim("─" * 78))
+            for entry_item in entries:
+                cost_note = (f"  ~{surface_cost_tokens(entry_item['tools']):,} tok") if want_cost else ""
+                print(_dim(f"[{entry_item['label']}] {len(entry_item['tools'])} tools{cost_note}"))
+                for tool_item in entry_item["tools"]:
+                    meta = tool_item["_meta"]
+                    body = _dim(" +body") if meta["has_body"] else ""
+                    print(f"  {_cyan(tool_item['name']):36} {meta['method']:8} {meta['path']}{body}")
+            print(_dim("─" * 78))
+            if want_cost:
+                total = surface_cost_tokens(all_tools)
+                print(_dim(f"surface cost: ~{total:,} tokens (~{total * 4 / 1024:.0f} KB) — "
+                           "paid in EVERY tools/list by every agent; cut it with --tag/--include/--exclude/--lazy"))
+            return
         if args.json:
             rows = []
             for t in tools:
@@ -1061,6 +1158,8 @@ def main(argv: list[str] | None = None) -> None:
             auth=auth,
             write_auth=write_auth,
             fields=_parse_fields(getattr(args, "fields", None), "--fields"),
+            redact=_parse_fields(getattr(args, "redact", None), "--redact"),
+            rate_limit=getattr(args, "rate_limit", None),
             timeout=args.timeout,
             tools=tools,
             lazy=args.lazy,
@@ -1197,6 +1296,8 @@ def main(argv: list[str] | None = None) -> None:
             auth=auth,
             write_auth=write_auth,
             fields=_parse_fields(getattr(args, "fields", None), "--fields"),
+            redact=_parse_fields(getattr(args, "redact", None), "--redact"),
+            rate_limit=getattr(args, "rate_limit", None),
             timeout=args.timeout,
             tools=tools,
             lazy=args.lazy,
@@ -1253,6 +1354,8 @@ def main(argv: list[str] | None = None) -> None:
             auth=auth,
             write_auth=write_auth,
             fields=_parse_fields(getattr(args, "fields", None), "--fields"),
+            redact=_parse_fields(getattr(args, "redact", None), "--redact"),
+            rate_limit=getattr(args, "rate_limit", None),
             timeout=args.timeout,
             tools=tools,
             lazy=args.lazy,
@@ -1453,8 +1556,13 @@ def main(argv: list[str] | None = None) -> None:
             )
         if total > 50:
             warnings.append(f"{total} operations is a large tool surface")
+        probe_report = None
+        if args.probe:
+            probe_base = args.base_url or next(
+                (s for s in servers if s.startswith(("http://", "https://"))), None)
+            probe_report = _doctor_probe(spec, probe_base, args.timeout)
         if args.json:
-            print(json.dumps({
+            payload = {
                 "ok": not warnings,
                 "operations": total,
                 "missing_operation_id": missing_id,
@@ -1463,8 +1571,11 @@ def main(argv: list[str] | None = None) -> None:
                 "instruction_like_text": instruction_like,
                 "overlong_descriptions": overlong_desc,
                 "exit_hints": ["pass --base-url"] if not servers else [],
-            }, ensure_ascii=False))
-            if warnings:
+            }
+            if probe_report is not None:
+                payload["probe"] = probe_report
+            print(json.dumps(payload, ensure_ascii=False))
+            if warnings or (probe_report is not None and not probe_report["ok"]):
                 sys.exit(1)
             return
 
@@ -1500,6 +1611,24 @@ def main(argv: list[str] | None = None) -> None:
             print(warn(f"warning: {total} operations is a large tool surface — consider --tag/--include/--exclude to protect the model's context"))
         if not missing_id and not no_summary:
             print(ok("all operations carry operationId and summary — agent-friendly ✓"))
+
+        probe_ok = True
+        if args.probe:
+            probe_base = args.base_url or next(
+                (s for s in servers if s.startswith(("http://", "https://"))), None)
+            report = _doctor_probe(spec, probe_base, args.timeout)
+            probe_ok = bool(report["ok"])
+            if report["ok"]:
+                verdict = ok("reachable") if 200 <= report["status"] < 400 else warn(f"HTTP {report['status']}")
+                print(f"probe:    {report['method']} {report['path']} → {report['status']} {verdict} "
+                      f"({report['latency_seconds']:.2f}s)")
+            else:
+                print(warn(f"probe:    {report.get('error', 'failed')}"))
+
+        if args.probe and not probe_ok:
+            # failed pre-flight means every tool call would fail too —
+            # stop before serving
+            sys.exit(1)
 
 
 if __name__ == "__main__":

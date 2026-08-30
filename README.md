@@ -2,8 +2,15 @@
 
 # mcpify
 
+[![Tests](https://img.shields.io/badge/tests-461%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![CI](https://github.com/furkan708/mcpify/actions/workflows/ci.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
+[![PyPI](https://img.shields.io/pypi/v/mcpify-openapi)](https://pypi.org/project/mcpify-openapi/)
+[![PyPI Downloads](https://img.shields.io/pypi/dm/mcpify-openapi)](https://pypi.org/project/mcpify-openapi/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 ![License](https://img.shields.io/badge/license-MIT-green)
+[![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-4A90D9)](server.json)
+![Dependencies](https://img.shields.io/badge/dependencies-zero-success)
 
 English | [Türkçe](README.tr.md)
 
@@ -11,153 +18,71 @@ English | [Türkçe](README.tr.md)
   <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
 </p>
 
-[![Tests](https://img.shields.io/badge/tests-432%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
-[![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/ci.yml)
-[![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-4A90D9)](server.json)
-[![CI](https://github.com/furkan708/mcpify/actions/workflows/ci.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
-[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-261230.svg)](https://github.com/astral-sh/ruff)
-[![Types: mypy](https://img.shields.io/badge/types-mypy-blue)](https://mypy-lang.org/)
-[![PyPI](https://img.shields.io/pypi/v/mcpify-openapi)](https://pypi.org/project/mcpify-openapi/)
-[![PyPI Downloads](https://img.shields.io/pypi/dm/mcpify-openapi)](https://pypi.org/project/mcpify-openapi/)
-[![Run with uvx](https://img.shields.io/badge/run%20with-uvx-DE5FE9)](https://docs.astral.sh/uv/)
-![Dependencies](https://img.shields.io/badge/dependencies-zero-success)
-
-**Turn any OpenAPI REST API into an [MCP](https://modelcontextprotocol.io) server** — so Claude Code, Cursor, and every other MCP client can call your API directly.
-
-mcpify is **focused, production-ready, and CLI-first**: one job (OpenAPI → MCP), zero runtime dependencies. Focused doesn't mean small — 432 tests across twenty-six suites, two transports (stdio + HTTP with SSE responses), dual MCP-spec compatibility, OAuth2, a policy layer, ETag-aware caching, safe retries, health probes, an audit trail, per-token tool RBAC, split read/write credentials and plugin hooks back that one job.
-
-
-Your company has a REST API. Your AI agent needs to call it. Until now that
-meant hand-writing a custom MCP server for every API. With mcpify:
+**Turn any OpenAPI REST API into an [MCP](https://modelcontextprotocol.io) server** — so Claude Code, Cursor, and every other MCP client can call your API directly. One command, zero runtime dependencies:
 
 ```bash
 mcpify serve https://your-company.com/openapi.json
 ```
 
-That's it — every endpoint just became a tool your AI agent can discover, understand, and call.
+```bash
+# try it right now, nothing installed (uvx pulls from PyPI on demand)
+uvx --from mcpify-openapi mcpify list examples/petstore.json --cost
+```
 
-**Deep docs:** [Usage guide](docs/USAGE.md) — auth patterns, scoping, Docker, troubleshooting · [Architecture](docs/ARCHITECTURE.md) · [Self-hosting](docs/SELF-HOSTING.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md)
-
-**The launch story:** [How a live weather API broke this tool — and made it better](https://dev.to/furkan708/i-connected-a-real-weather-api-to-claude-in-3-commands-and-the-community-broke-my-tool-in-the-3jid)
+Focused, production-ready, CLI-first: one job (OpenAPI → MCP), with the
+governance, token economics and operations around it that real deployments
+need. 461 tests across twenty-seven suites, two transports (stdio + HTTP
+with SSE responses), dual MCP-spec compatibility, split read/write
+credentials (static and OAuth2), a policy layer, ETag-aware caching, safe
+retries, health probes, an audit trail, per-token tool RBAC and plugin
+hooks back that one job.
 
 ## Why you'll like it
 
+**From spec to server**
+
 - **60 seconds to working** — point it at any OpenAPI 3.x spec (file or URL)
-- **Credentials never touch the spec or the model** — pulled from your
-  environment at call time (`--auth-env`), sent as `Authorization: Bearer`,
-  a custom header, or a query parameter
-- **Every operation becomes a first-class MCP tool** — input schemas are
-  generated from `parameters` + `requestBody`, internal `$ref`s are resolved
-- **Scope it down** — `--read-only` (GET only), `--tag payments`,
-  `--include /v1/orders`, `--exclude /admin`, plus a policy layer for real-world
-  APIs: `--deny REGEX` hides mutating GETs, `--allow REGEX` re-includes
-  read-style POST endpoints. Deny always wins.
-- **Spec versions diffed from the tool view** — `mcpify diff old.yaml new.yaml` reports
-  added/removed/changed operations with a per-change **breaking** verdict (removed ops,
-  newly-required parameters, required bodies), a migration guide for agent consumers, and
-  `--fail-on-breaking` as a CI gate
-- **Audit trail without content exposure** — `--audit-log FILE` writes one JSON line per
-  API call: tool, API, status, latency, and an argument *fingerprint* (arguments are never
-  written raw; they can carry end-user data)
-- **Per-token tool RBAC** — `--http-token-file tokens.toml` gives each bearer token its own
-  `allow`/`deny` regex scopes: token A sees 3 tools, token B sees 30. Deny wins; scoped-out
-  calls are refused with a clear error
-- **Plugins where it counts** — `--plugin auth.py` loads your Python module: an `AUTH`
-  provider replaces the credential logic, `on_request`/`on_result` hooks see every
-  request/response (add headers, redact fields, ship events)
-- **Observability, opt-in only** — Prometheus `--metrics` (v1.10) plus `--otel` for one
-  OpenTelemetry span per upstream call (optional extra, core stays dependency-free)
-- **Least-privilege credentials** — `--write-auth-env` splits the identity: reads go out
-  on your read key, writes (POST/PUT/PATCH/DELETE) on a dedicated write key, so a read
-  call can never carry write power. `--read-only` filters the surface; the split makes
-  the *credential* match the policy
-- **Valid truncation** — oversized responses are cut along JSON structure (fewer items,
-  an explicit `"truncated": true` marker), never mid-document — the model never receives
-  half a JSON file
-- **See the bill before serving** — `mcpify list --cost` estimates the context cost of
-  the surface (~4 chars/token): every agent pays it in every `tools/list`, so know the
-  number before you cut it
-- **Token-cutting projections** — `--fields id,name` keeps only the requested top-level
-  keys in responses (each item of a top-level array) — predictable, documented boundaries
-- **SSE responses on HTTP** — clients that speak `text/event-stream` get Streamable-HTTP
-  SSE framing; JSON clients get JSON; the transport stays stateless
-- **`mcpify doctor`** — tells you if your spec is agent-friendly before you ship, including
-  instruction-like tool text (spec authors become prompt authors — doctor makes that visible)
-- **Multiple environments? Pick one.** Specs declaring
-  prod/staging/dev `servers[]` get `--server 2` or `--server staging`
-  (description or URL match) instead of a hand-typed `--base-url`
-- **Two transports, one tool surface.** `serve` speaks stdio to local
-  agents; `serve --http 8080` speaks MCP Streamable HTTP so a whole team
-  (or a gateway) can share one server — optional bearer token with
-  `--http-token`, stateless per the current MCP spec
-- **OAuth2 client-credentials built in** — point it at your identity
-  provider's token endpoint; tokens are fetched, cached, refreshed, and
-  re-fetched automatically on a mid-flight 401 (RFC 6749, stdlib only)
-- **Auth reads the spec, not a dashboard** — the security declarations
-  in your OpenAPI document configure `--auth-env` automatically (bearer,
-  HTTP basic, header or query with the right name); secured specs with
-  no credential print the exact flags to run. Rate-limited APIs can be
-  honored too: `--wait-on-429` waits out `Retry-After` once, within a cap
-- **Several APIs, one MCP server** — list multiple OpenAPI documents as
-  `[apis.NAME]` sections in `.mcpify.toml` and one `serve` process fronts
-  them all: a single tool surface with per-API auth, caching, retries and
-  filters, automatic renames when two APIs ship the same tool name, an
-  aggregated health report, and `mcpify status` that probes every API in
-  parallel. The feature hosted gateways bill for, in a config file
-- **A local operations dashboard** — `mcpify ui` opens a zero-dependency
-  web UI (one inline HTML page, no CDN, token-able): live tool explorer
-  with schema views and masked request previews, per-API health probes
-  with latency sparklines, a masked log tail, and a form that writes a
-  validated `.mcpify.toml`. Real execution stays in `mcpify try`; the
-  dashboard is a dry-run cockpit
-- **Prometheus metrics, opt-in** — `serve --metrics [HOST:]PORT` exposes
-  `/metrics`: per-tool call counters with outcome labels, latency
-  histograms, cache hit/miss, per-API health gauges. Zero recording
-  overhead when the flag is off; alert rules belong to your Prometheus
-- **`mcpify mock`** — serve a fake API generated from the spec
-  (schema-shaped JSON: examples > default > enum > format > type), so
-  agents and CI have something to talk to before the backend exists
-- **`--reload`** — watch the spec file(s); the tool surface hot-swaps on
-  change. A broken half-saved spec keeps the previous surface — the
-  server never dies from a bad edit
-- **Host it yourself for free** — `deploy/docker-compose.yml` (with
-  automatic-HTTPS Caddy) and a hardened systemd unit turn a $5 VPS into
-  what hosted-MCP plans bill $9–$229/month for: [Self-hosting guide](docs/SELF-HOSTING.md)
-- **`mcpify try`** — an interactive terminal REPL to call the generated
-  tools without any agent client: pick a tool, fill the arguments, see the
-  real response. Same execution path as MCP `tools/call`
-- **`mcpify output-server`** — bake a serve command into a small shareable
-  script: teammates run `python3 server.py` and get the identical MCP server
-- **Operational, not just functional.** `mcpify init` wizard + `.mcpify.toml`
-  configs with per-environment sections, GET response caching (`--cache-ttl`),
-  safe retries (`--retry` — idempotent methods only, 502/503/504 only),
-  verbose/log-file logging with masked credentials, XML→JSON conversion,
-  strict argument mode, origin auto-discovery, legacy batch tolerance, and
-  a health probe (`mcpify status` / `mcpify_health`)
-- **Zero runtime dependencies** — the entire tree is auditable stdlib
-  Python; YAML specs need an optional `pip install 'mcpify[yaml]'`
-- **Agent-grade surface.** Tool annotations derived from HTTP semantics
-  (clients auto-approve read-only tools), structured output via MCP
-  `outputSchema`/`structuredContent`, remediation-grade errors that teach the
-  next call, dry-run request previews, and a `--lazy` search-then-call mode
-  that cut api.weather.gov's listing by **95.5%** (38,882 → 1,741 chars)
-- **432 tests across twenty-six suites** — including full MCP protocol runs
-  over stdio *and* over HTTP against real local APIs and the **live
-  api.weather.gov document** (69 tools, 16 enum'd parameters)
+- **Every operation becomes a first-class MCP tool** — input schemas are generated from `parameters` + `requestBody`, internal `$ref`s are resolved
+- **Spec versions diffed from the tool view** — `mcpify diff old.yaml new.yaml` reports added/removed/changed operations with per-change **breaking** verdicts and a migration guide; `--fail-on-breaking` is a CI gate
+- **`mcpify doctor`** — tells you if your spec is agent-friendly before you ship: missing operationIds, missing summaries, instruction-like tool text, overlong descriptions; `--probe` dials the API once for a live pre-flight before you serve
+- **`mcpify try` / `mcpify mock` / `mcpify output-server`** — call the tools without an agent client, serve a schema-shaped fake API for CI, or bake a serve command into a shareable script
+
+**Credentials & policy**
+
+- **Credentials never touch the spec or the model** — pulled from your environment at call time; the spec's own security declarations pick the flags (bearer, basic, header, query)
+- **OAuth2 client-credentials built in** — tokens are fetched, cached, refreshed and re-fetched on a mid-flight 401 (RFC 6749, stdlib only); `--write-oauth2-*` gives non-GET calls a **second client identity** so reads and writes authenticate as different clients
+- **Least-privilege by default** — `--write-auth-env` splits the static credential (reads on your read key, writes on a dedicated key), `--read-only` filters the surface, `--deny/--allow` hides mutating GETs, per-token RBAC gives each bearer token its own allow/deny scopes
+- **`--redact password,token`** — values whose key names a secret are masked with `***` at every level of every response (error bodies included, case-insensitive); the model never sees them
+- **Audit trail without content exposure** — one JSON line per call: tool, API, status, latency, an argument *fingerprint* (never raw arguments); `--plugin` loads your Python module for auth/request/result hooks
+
+**Token economics**
+
+- **See the bill before serving** — `mcpify list --cost` prices the surface (~4 chars/token): what every agent pays in EVERY `tools/list`; multi-API configs get per-API and total prices in one run
+- **`--fields id,event`** — response projection that selects at every level: selected keys keep their value, non-selected containers stay transparent, emptied containers drop. Live weather.gov: 350 alerts in full inside the budget that previously truncated at ~189
+- **Valid truncation** — oversized responses are cut along JSON structure with an explicit `"truncated": true` marker, never mid-document
+- **`--lazy` search-then-call** — cut api.weather.gov's listing by 95.5%; search results now show what pulling each full schema would cost, so the agent pulls only what it needs
+- **`[tool-text]` overrides** — doctor flags model-facing instruction-like descriptions; you replace them per tool in config
+
+**Operations**
+
+- **Two transports, one tool surface** — stdio for local agents; `serve --http 8080` speaks MCP Streamable HTTP (SSE responses for clients that ask, JSON otherwise) so a whole team shares one server, with optional bearer tokens
+- **Several APIs, one MCP server** — `[apis.NAME]` sections in `.mcpify.toml`: per-API auth, caching, retries, filters and rate limits; collision-safe renames; aggregated health; `mcpify status` probes every API in parallel
+- **Upstream courtesy built in** — ETag-aware caching, idempotent-only retries (502/503/504), `--wait-on-429` honors Retry-After, `--rate-limit RPS` caps requests/second (per upstream in multi-API, retries included)
+- **Observability, opt-in only** — Prometheus `--metrics`, `--otel` spans, `--reload` hot swap, `mcpify ui` local dashboard
+- **Host it yourself for free** — docker-compose with automatic-HTTPS Caddy plus a hardened systemd unit: [Self-hosting guide](docs/SELF-HOSTING.md)
+- **Zero runtime dependencies** — the entire tree is auditable stdlib Python; YAML specs need an optional `pip install 'mcpify[yaml]'`
 
 ## Quick start
 
 ```bash
+# install (installs the `mcpify` command)
+pipx install mcpify-openapi
+
 # run without installing (uvx — pulls from PyPI on demand)
 uvx --from mcpify-openapi mcpify list ./openapi.json --read-only
 
 # first time? the wizard writes a config for you
 uvx --from mcpify-openapi mcpify init
-
-# or install (installs the `mcpify` command)
-pipx install mcpify-openapi
 
 # ...as a container (GHCR, published on every release)
 docker run -i ghcr.io/furkan708/mcpify:latest serve ./openapi.json --read-only
@@ -166,10 +91,10 @@ docker run -i ghcr.io/furkan708/mcpify:latest serve ./openapi.json --read-only
 git clone https://github.com/furkan708/mcpify.git
 cd mcpify && pip install .
 
-# 1. preview the tools that will be generated
+# 1. preview the tools that will be generated (add --cost for the context price)
 mcpify list examples/petstore.json
 
-# 2. validate the spec is agent-friendly
+# 2. validate the spec is agent-friendly (+ --probe for a live pre-flight)
 mcpify doctor examples/petstore.json
 
 # 3. serve it over MCP
@@ -222,6 +147,12 @@ mcpify serve api.json \
   --oauth2-scope "read write"        # optional; --oauth2-client-auth body for token endpoints that reject Basic
 ```
 
+**Split write identities too:** `--write-oauth2-token-url` (+ client/scope
+flags) runs a second client-credentials flow for non-GET calls — reads
+authenticate as the read client, writes as the write client, each with
+its own token cache and the same 401 self-heal. Mutually exclusive with
+`--write-auth-env` (pick one credential kind for writes).
+
 ### Multiple APIs in one server
 
 Put several OpenAPI documents in one config and serve them as a single
@@ -233,11 +164,14 @@ tool surface — no gateway, no per-API process:
 spec = "https://shop.example.com/openapi.json"
 auth-env = "CATALOG_TOKEN"          # per-API credential
 cache-ttl = 60
+rate-limit = 5                      # per-API courtesy throttle (req/s)
+redact = "password,client_secret"   # per-API response masking
 
 [apis.crm]
 spec = "./crm.yaml"
 read-only = true                    # per-API policy
 base-url = "https://crm.internal/v2"
+fields = "id,name"                  # per-API response projection
 
 [apis.weather]
 spec = "https://api.weather.gov/openapi.json"
@@ -248,6 +182,7 @@ Surface switches (`--lazy`, `--enable-preview`, `--http`, `--format`) are
 server-wide flags; credentials, policies, caching and retries are per-API.
 
 ```bash
+mcpify list --cost      # preview every API and price each surface
 mcpify serve            # stdio, all three APIs, prefixed on collisions
 mcpify serve --http 8080
 mcpify try              # REPL across every API
@@ -313,8 +248,8 @@ Now ask your agent: *"list the pets, then create one named Milo"* — it discove
 | `servers[0].url` | default base URL (override: `--base-url`) |
 
 The agent only ever sees the tool list and your API's JSON responses —
-mcpify adds no middleware, caches nothing, and sends credentials nowhere
-except your API.
+mcpify adds no middleware, caches nothing you did not ask for, and sends
+credentials nowhere except your API.
 
 ## Doctor
 
@@ -329,10 +264,23 @@ warning: 12/41 operations have no operationId (names fall back to method_path)
 warning: 30/41 operations have no summary (agents see no description)
 ```
 
+Add `--probe` for a live pre-flight — after the static report, mcpify
+dials one argument-free GET (or the base URL) and reports reachability;
+a connection failure exits non-zero so CI and shell scripts stop before
+serving:
+
+```bash
+$ mcpify doctor https://api.weather.gov/openapi.json --probe
+...
+probe:    GET /alerts → 200 reachable (2.80s)
+```
+
 ## CLI reference
 
 ```
 mcpify list <spec> [--tag T] [--include P] [--exclude P] [--read-only] [--json]
+mcpify list --cost                        # price the surface (~4 chars/token)
+mcpify list --config .mcpify.toml --cost  # multi-API: every surface priced
 mcpify serve <spec> [--base-url URL] [--server INDEX|NAME] [--name N] [--auth-env VAR]
                     [--auth-style bearer|header|query] [--auth-name NAME]
                     [--oauth2-token-url URL --oauth2-client-id-env VAR
@@ -345,14 +293,15 @@ mcpify ui <spec> [same serve flags]         # local dashboard (tool explorer, he
 mcpify mock <spec> [--http 8000] [--delay-ms N]
 mcpify diff OLD NEW [--json] [--fail-on-breaking]   # spec upgrade report + CI gate
 mcpify config-schema                        # JSON Schema for .mcpify.toml (editor wiring)
-mcpify list <spec> --cost                   # estimate the surface's context cost
+mcpify doctor <spec> [--probe --base-url URL --timeout S]   # agent-friendliness + live pre-flight
+
+# token economics: --fields id,name (projection), --redact password,token (masking),
+#   --rate-limit RPS (upstream courtesy, retries included)
 # credential split: --write-auth-env WRITE_KEY_ENV or --write-oauth2-token-url (reads keep --auth-env)
-# response projection: --fields id,name       # SSE: POST answers as text/event-stream when the client asks
 # tool-text overrides: [tool-text.TOOL] description = "..." in .mcpify.toml
-mcpify doctor <spec>
 
 # multi-API: define [apis.NAME] sections in .mcpify.toml, then run
-#   mcpify serve|try|status|ui (no positional spec) — one process, every API
+#   mcpify list|serve|try|status|ui (no positional spec) — one process, every API
 # ops add-ons for serve/ui: --metrics [HOST:]PORT   --reload   --cache-warm
 #   --audit-log FILE   --http-token-file FILE   --plugin FILE (repeatable)   --otel [ENDPOINT]
 ```
@@ -364,10 +313,14 @@ mcpify doctor <spec>
   cross-file refs are left in place rather than unwound (surface skips what it cannot resolve)
 - Oversized JSON responses truncate to valid JSON (first items + a truncation marker);
   non-JSON bodies cut at a character boundary
-- `--write-auth-env` covers static credentials; OAuth2 token flows keep a single shared
-  identity for now (a second token flow is deliberate future work)
+- `--fields` selects at every level by documented rule (selected keys verbatim,
+  non-selected containers transparent); it is a projection, not a security boundary —
+  use `--redact` when a field must never reach the model
 - Request bodies are exposed as a single `body` object argument — predictable over clever
-- HTTP transport serves one JSON-RPC message per request (batching was removed from the MCP spec) and responds `application/json` — a stateless server has nothing to stream
+- HTTP transport serves one JSON-RPC response per request (batching was removed from
+  the MCP spec); clients that send `Accept: text/event-stream` get it framed as a
+  single SSE `message` event. Server-initiated streams (a GET stream with sessions)
+  stay deliberately out of scope for a stateless server
 - Spec versions: OpenAPI 3.x and Swagger 2.x roots are accepted; 3.x is the happy path
 
 ## Hardened against the real world
@@ -381,18 +334,20 @@ examples:
   responses — every scenario derived from a documented real-world failure,
   fixed, and locked in by a regression test. Sources include the arXiv
   study of REST→MCP generation across 18 real APIs.
-- **Live integration:** the real api.weather.gov spec loads in CI — the
-  case that found (and fixed) our last crash-class bug.
+- **Live integration:** the real api.weather.gov spec loads in CI — and
+  the live checks found the last two real bugs (nested-truncation
+  envelope splits, top-level-only projection) before any user did.
 - **MCP lifecycle enforced:** tools are unreachable until the client
   completes the `initialize` handshake.
 - **Blast-radius controls:** read-only mode, deny/allow policy layer,
-  40k-char response truncation, `--timeout`, credentials never logged.
+  per-token RBAC, response projection + secret masking, rate limiting,
+  40k-char valid truncation, `--timeout`, credentials never logged.
 
 Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
 ## Tests
 
-**389 passing**, plus one live-integration test that loads the real
+**461 passing**, plus one live-integration test that loads the real
 api.weather.gov document (auto-skipped when offline) and an OTel positive
 test that runs wherever the optional tracing extra is installed. Every
 suite runs on Python 3.10–3.12 across Linux and Windows; `ruff`, strict
@@ -424,7 +379,9 @@ suite runs on Python 3.10–3.12 across Linux and Windows; `ruff`, strict
 | Spec diff (`mcpify diff`) | 14 | added/removed/changed ops, breaking verdicts (required param added/became, body became required, op removal), deprecation & operationId warnings, migration guide, document-level diff, CLI exit contract 0/1/2, `--json` |
 | v1.11 serving: audit, cache, RBAC, plugins | 17 | JSONL audit trail with argument fingerprints + fail-safe on unwritable files, ETag 304 revalidation on stale entries, `mcpify_cache_invalidate` (scoped + full), `--cache-warm` pre-calls argument-free GETs only, token-file scoping end-to-end (401 / filtered lists / refused calls, deny wins, duplicate-token rejection), plugin hooks on real requests, `mcpify ui` dispatch (dead-command regression), `config-schema` matches the config module, OTel guard |
 | External `$ref` bundling | 6 | file + URL-base targets inlined, component-only target files, nested refs resolved relative to their own file, missing targets skipped, circular refs survive, same-document refs untouched |
-| Governance: split keys, tool text, valid truncation | 21 | read-key/write-key per method over a live upstream (shared-identity default unchanged), style/name inheritance + explicit override, OAuth2 refusal, config `write-auth-*` keys in serve/envs/apis, `[tool-text]` override through `list --json`, unknown-tool warnings, validator errors, schema/keys parity, doctor instruction-like + overlong-description counts, oversized array → valid JSON with marker, object key-keeping, non-JSON fallback, error-prefix survival |
+| Governance: split keys, tool text, valid truncation | 21 | read-key/write-key per method over a live upstream (shared-identity default unchanged), style/name inheritance + explicit override, config `write-auth-*` keys in serve/envs/apis, `[tool-text]` override through `list --json`, unknown-tool warnings, validator errors, schema/keys parity, doctor instruction-like + overlong-description counts, oversized array → valid JSON with marker, object key-keeping, non-JSON fallback, error-prefix survival |
+| v1.13: cost, projection, SSE, OAuth2 write | 20 | surface pricing in JSON + human output, recursive projection with transparent envelopes (both rules pinned: the top-level-only first rule failed live), selected keys keep their arrays, SSE framing vs JSON clients, write-flow resolution + mutual exclusion with `--write-auth-env` |
+| v1.14: redact, rate-limit, probe, multi list | 29 | masking at every level incl. error bodies and selected-key overlap, arrays masked in place, limiter slots with a fake clock, retry throttling, probe target selection + reachability exit contract, config `redact`/`rate-limit` in serve/apis/envs, per-upstream limiters, multi-API `list` + pricing |
 
 Policy on failures: every bug found in the wild becomes a pinned
 regression test before the fix ships — the suite only grows.
@@ -436,29 +393,12 @@ pip install pytest pyyaml
 pytest -v
 ```
 
-## Project Structure
-
-```
-mcpify/
-├── mcpify/
-│   ├── spec.py          # OpenAPI loading, $ref resolution, operation walking
-│   ├── tools.py         # operation -> MCP tool, argument -> HTTP request
-│   ├── http_client.py   # execution (urllib, HTTP errors become tool results), OAuth2 flow
-│   ├── api_server.py    # the MCP server core (JSON-RPC 2.0, tools, policy)
-│   ├── aggregate.py     # multi-API composition ([apis.*] -> one tool surface)
-│   ├── http_transport.py# Streamable HTTP transport (--http)
-│   ├── repl.py          # `mcpify try` interactive terminal REPL
-│   ├── standalone.py    # `mcpify output-server` script generator
-│   └── cli.py           # list / serve / try / output-server / doctor / status / init
-├── examples/petstore.json
-└── tests/
-```
-
 ## Roadmap
 
-The v1.6–1.13 roadmap is fully shipped. Possible future work (not promised):
-server-initiated SSE (a GET stream with sessions — deliberately out for a
-stateless transport), token estimates for lazy search results.
+The v1.6–1.14 roadmap is fully shipped. Possible future work (not
+promised): server-initiated SSE (a GET stream with sessions —
+deliberately out for a stateless transport).
+- [x] ~~`--redact`, `--rate-limit`, `doctor --probe`, lazy-search costs, multi-API `list`~~ — shipped in v1.14.0
 - [x] ~~OAuth2 write flow (`--write-oauth2-*`), `list --cost`, `--fields` projection, SSE POST responses~~ — shipped in v1.13.0
 - [x] ~~Read/write credential split, tool-text overrides, doctor prompt-hygiene audit, structure-aware truncation~~ — shipped in v1.12.0
 - [x] ~~Spec diff + audit log + per-token RBAC + plugin hooks + config JSON Schema + external `$ref` bundling + OTel extra~~ — shipped in v1.11.0

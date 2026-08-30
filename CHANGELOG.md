@@ -6,6 +6,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-08-31
+
+### Added — secrets, courtesy, and pre-flight
+- **`--redact F1,F2` response masking:** values whose key names one of the
+  given fields are masked with `***` at EVERY level of every response —
+  success and error bodies alike, case-insensitive (`Password`,
+  `client_secret`), arrays masked in place so indices stay stable. Runs
+  after `--fields` projection: a field you asked for by name is still
+  masked when it is a secret. Per API: `redact = "password,token"` in
+  `[apis.NAME]`. Verified against live api.weather.gov: 284 alerts with
+  `severity`/`urgency` masked, `event` intact.
+- **`--rate-limit RPS`:** thread-safe client-side throttle — at most RPS
+  requests/second toward the upstream, retries included (a retrying call
+  cannot burst the API either). In multi-API configs each upstream gets
+  its own limiter: one API's budget never waits for another's slots.
+  Per API: `rate-limit = 2.5`.
+- **`doctor --probe`:** live pre-flight after the static report — one
+  argument-free GET (or the base URL) against the API; any HTTP status
+  proves reachability (a 401 with no credentials is a working API),
+  connection failure exits 1 before you serve. `--base-url`/`--timeout`
+  supported, `--json` includes the probe payload. Live: `GET /alerts →
+  200 reachable (2.80s)` against api.weather.gov.
+- **Lazy search shows the pull's price:** `mcpify_search_tools` entries
+  now carry `cost_tokens` per hit and the header totals what pulling all
+  matched schemas would cost — the agent can decide BEFORE pulling.
+  Closes the "token estimates for lazy search results" roadmap item.
+- **`mcpify list` over a config:** with `[apis.*]` sections, list previews
+  every API in one run — per-API tool tables, and with `--cost` a per-API
+  plus total surface price (weather.gov 69 tools ~6,900 tok + petstore 19
+  tools ~1,679 tok = ~8,579 tok in one line).
+- `fields`/`redact`/`rate-limit` in `[serve]`, `[apis.NAME]` and
+  `[envs.*]` with config-schema parity tests. 31 new tests — **461
+  passing** across twenty-seven suites.
+
 ## [1.13.0] - 2026-08-30
 
 ### Added — the token-budget release (completes the v1.6→1.13 roadmap)
