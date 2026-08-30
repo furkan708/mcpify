@@ -327,15 +327,19 @@ def test_write_auth_explicit_style_wins(monkeypatch):
     assert write is not None and write.style == "query"
 
 
-def test_write_auth_with_oauth2_is_refused():
+def test_write_auth_with_oauth2_main_is_allowed_since_v1_13():
+    """v1.12 refused static-write with OAuth2-main; v1.13's independent
+    write configuration allows it (style defaults to bearer)."""
     import argparse as ap
 
     from mcpify.http_client import OAuth2ClientCredentials
 
-    args = ap.Namespace(write_auth_env="MCP_WRITE", write_auth_style=None, write_auth_name=None)
+    args = ap.Namespace(write_auth_env="MCP_WRITE", write_auth_style=None,
+                        write_auth_name=None, write_oauth2_token_url=None,
+                        write_oauth2_client_id_env=None)
     oauth = OAuth2ClientCredentials("https://auth.example.com/token", "CLIENT_ID_ENV")
-    with pytest.raises(SystemExit):
-        _resolve_write_auth(args, oauth)
+    write = _resolve_write_auth(args, oauth)
+    assert write is not None and write.env_var == "MCP_WRITE"
 
 
 def test_write_auth_absent_returns_none():

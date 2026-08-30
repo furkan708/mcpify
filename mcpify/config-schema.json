@@ -157,6 +157,29 @@
         },
         "write-auth-name": {
           "type": "string"
+        },
+        "fields": {
+          "type": "string",
+          "description": "Response projection: comma-separated top-level keys to keep in JSON responses (each item of a top-level array)."
+        },
+        "write-oauth2-token-url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "write-oauth2-client-id-env": {
+          "type": "string"
+        },
+        "write-oauth2-client-secret-env": {
+          "type": "string"
+        },
+        "write-oauth2-scope": {
+          "type": "string"
+        },
+        "write-oauth2-client-auth": {
+          "enum": [
+            "basic",
+            "body"
+          ]
         }
       }
     },
@@ -311,6 +334,29 @@
           },
           "write-auth-name": {
             "type": "string"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Response projection: comma-separated top-level keys to keep in JSON responses (each item of a top-level array)."
+          },
+          "write-oauth2-token-url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "write-oauth2-client-id-env": {
+            "type": "string"
+          },
+          "write-oauth2-client-secret-env": {
+            "type": "string"
+          },
+          "write-oauth2-scope": {
+            "type": "string"
+          },
+          "write-oauth2-client-auth": {
+            "enum": [
+              "basic",
+              "body"
+            ]
           }
         }
       }
@@ -445,6 +491,29 @@
           },
           "write-auth-name": {
             "type": "string"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Response projection: comma-separated top-level keys to keep in JSON responses (each item of a top-level array)."
+          },
+          "write-oauth2-token-url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "write-oauth2-client-id-env": {
+            "type": "string"
+          },
+          "write-oauth2-client-secret-env": {
+            "type": "string"
+          },
+          "write-oauth2-scope": {
+            "type": "string"
+          },
+          "write-oauth2-client-auth": {
+            "enum": [
+              "basic",
+              "body"
+            ]
           }
         }
       }

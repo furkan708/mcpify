@@ -28,7 +28,14 @@ from typing import Any
 from . import __version__ as SERVER_VERSION  # never hardcode: avoids version drift
 from . import audit, metrics, otel
 from .convert import convert as convert_format
-from .http_client import OAuth2ClientCredentials, ResponseCache, execute, format_result, remediation
+from .http_client import (
+    OAuth2ClientCredentials,
+    ResponseCache,
+    execute,
+    format_result,
+    project_json,
+    remediation,
+)
 from .tools import META_TOOL_NAMES, AuthConfig, RequestError, build_request, spec_to_tools
 
 # Anything that can inject credentials into outgoing requests: the static
@@ -84,6 +91,7 @@ class ApiServer:
         response_format: str = "auto",
         wait_on_429: float = 0.0,
         write_auth: AuthProvider | None = None,
+        fields: frozenset[str] | None = None,
     ) -> None:
         self.spec = spec
         self.base_url = base_url
@@ -93,6 +101,9 @@ class ApiServer:
         # primary identity, writes carry their own — structural least
         # privilege instead of one shared API identity
         self.write_auth: AuthProvider | None = write_auth
+        # response projection (--fields): successful JSON responses keep
+        # only these top-level keys — token cuts without losing data
+        self.fields = fields
         self.timeout = timeout
         self.lazy = lazy
         # tools may be pre-filtered by the CLI policy layer; building them
@@ -290,6 +301,7 @@ class ApiServer:
             "retry": self.retry,
             "retry_delay": self.retry_delay,
             "wait_on_429": self.wait_on_429,
+            "fields": self.fields,
         }
 
     def _send(self, tool: dict[str, Any], arguments: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
@@ -334,6 +346,11 @@ class ApiServer:
         for hook in self.result_hooks:
             with contextlib.suppress(Exception):  # eklenti hatasi servisi durdurmaz
                 result = hook(result) or result
+        wanted = context.get("fields")
+        if wanted and 200 <= result["status"] < 400 and result.get("json") is not None:
+            projected = project_json(result["json"], wanted)
+            result = {**result, "json": projected,
+                      "body": json.dumps(projected, ensure_ascii=False)}
         return result
 
     def _metric_labels(self, tool: dict[str, Any]) -> dict[str, str]:

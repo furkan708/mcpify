@@ -167,6 +167,18 @@ def _add_serve_options(p: argparse.ArgumentParser, with_http: bool) -> None:
                    help="style for the write credential (default: inherit --auth-style)")
     p.add_argument("--write-auth-name", default=None,
                    help="header/query name for the write credential (default: inherit --auth-name)")
+    p.add_argument("--write-oauth2-token-url", default=None,
+                   help="OAuth2 client-credentials token endpoint for NON-GET calls — a second "
+                   "token flow so writes authenticate as a different OAuth2 client")
+    p.add_argument("--write-oauth2-client-id-env", default=None,
+                   help="env variable holding the write-flow OAuth2 client id")
+    p.add_argument("--write-oauth2-client-secret-env", default=None,
+                   help="env variable holding the write-flow OAuth2 client secret (optional for "
+                   "public clients)")
+    p.add_argument("--write-oauth2-scope", default=None,
+                   help="space-separated scope(s) to request in the write flow")
+    p.add_argument("--write-oauth2-client-auth", choices=("basic", "body"), default="basic",
+                   help="client authentication style for the write-flow token endpoint")
     p.add_argument("--wait-on-429", type=float, default=0.0, metavar="SEC",
                    help="on 429, honor Retry-After (or the retry delay) once for "
                    "idempotent calls when the wait is at most SEC seconds (default: off)")
@@ -234,6 +246,10 @@ def _add_serve_options(p: argparse.ArgumentParser, with_http: bool) -> None:
     p.add_argument("--cache-warm", action="store_true",
                    help="with --cache-ttl: pre-call every GET tool that needs no arguments "
                    "right after startup (background threads)")
+    p.add_argument("--fields", default=None, metavar="F1,F2",
+                   help="response projection: keep only these top-level keys in JSON responses "
+                   "(applies to each item of a top-level array; nested objects are untouched) — "
+                   "cuts tokens without losing the requested data")
     p.add_argument("--otel", nargs="?", const="http://localhost:4318/v1/traces", default=None,
                    metavar="ENDPOINT",
                    help="export one OpenTelemetry span per upstream API call via OTLP/HTTP "
@@ -484,6 +500,10 @@ def _build_entries(args: argparse.Namespace, data: dict[str, Any]) -> list[dict[
             ("oauth2_client_auth", "basic"), ("timeout", 30.0), ("cache_ttl", 0.0),
             ("retry", 0), ("retry_delay", 1.0), ("wait_on_429", 0.0),
             ("write_auth_env", None), ("write_auth_style", None), ("write_auth_name", None),
+            ("fields", None),
+            ("write_oauth2_token_url", None), ("write_oauth2_client_id_env", None),
+            ("write_oauth2_client_secret_env", None), ("write_oauth2_scope", None),
+            ("write_oauth2_client_auth", "basic"),
         ):
             if not hasattr(ns, attr):
                 setattr(ns, attr, default)
@@ -514,12 +534,13 @@ def _build_entries(args: argparse.Namespace, data: dict[str, Any]) -> list[dict[
         if write_auth is not None:
             print(
                 f"mcpify [{label}]: auth split — reads use {ns.auth_env}, "
-                f"writes use {ns.write_auth_env}",
+                f"writes use {getattr(write_auth, 'env_var', None) or ns.write_oauth2_token_url}",
                 file=sys.stderr,
             )
         entries.append({
             "label": label,
             "spec": spec,
+            "fields": _parse_fields(ns.fields, f"apis.{label}.fields"),
             "spec_path": ns.spec,
             "base": base,
             "auth": auth,
@@ -536,29 +557,52 @@ def _build_entries(args: argparse.Namespace, data: dict[str, Any]) -> list[dict[
 
 # Tool text is model-facing: phrases that read as instructions to a model
 # (not as documentation to a human) get flagged by `mcpify doctor`.
+def _parse_fields(raw: Any, where: str) -> frozenset[str] | None:
+    from .http_client import parse_fields
+
+    if raw is None or raw == "":
+        return None
+    try:
+        return parse_fields(raw)
+    except ValueError as err:
+        _fail(f"{where}: {err}")
+
+
 def _resolve_write_auth(
     args: argparse.Namespace,
     main_auth: AuthConfig | OAuth2ClientCredentials | None,
-) -> AuthConfig | None:
-    """Build the dedicated NON-GET credential (--write-auth-env), or None.
+) -> AuthConfig | OAuth2ClientCredentials | None:
+    """Build the dedicated NON-GET credential, or None.
 
-    Style/name inherit from the primary static credential unless
-    explicitly overridden, so the common case is one flag:
-    `--auth-env READ_KEY --write-auth-env WRITE_KEY`. Reads and writes
-    then carry different server-side identities — the blast radius of a
-    read call is the read key's, not the write key's. Not available with
-    OAuth2 yet: a second client-credentials flow is its own design.
+    Two credential kinds, one per flag family (mutually exclusive):
+    --write-auth-env for a second static key, --write-oauth2-token-url
+    for a second OAuth2 client-credentials flow. Reads and writes then
+    carry different server-side identities — the blast radius of a read
+    call is the read credential's, not the write credential's. Static
+    style/name inherit from the primary static credential unless
+    overridden; the OAuth2 write flow is configured independently.
     """
     from .http_client import OAuth2ClientCredentials
 
+    token_url = getattr(args, "write_oauth2_token_url", None)
     env = getattr(args, "write_auth_env", None)
+    if token_url and env:
+        _fail("--write-auth-env and --write-oauth2-token-url are mutually exclusive: "
+              "pick one credential kind for writes")
+    if token_url:
+        client_id_env = getattr(args, "write_oauth2_client_id_env", None)
+        if not client_id_env:
+            _fail("--write-oauth2-token-url requires --write-oauth2-client-id-env")
+        return OAuth2ClientCredentials(
+            token_url,
+            client_id_env,
+            client_secret_env=getattr(args, "write_oauth2_client_secret_env", None),
+            scope=getattr(args, "write_oauth2_scope", None),
+            client_auth=getattr(args, "write_oauth2_client_auth", "basic"),
+            timeout=getattr(args, "timeout", 30.0),
+        )
     if not env:
         return None
-    if isinstance(main_auth, OAuth2ClientCredentials):
-        _fail(
-            "--write-auth-env is not supported with OAuth2 credentials yet — "
-            "a second client-credentials token flow needs its own design"
-        )
     style = getattr(args, "write_auth_style", None)
     name = getattr(args, "write_auth_name", None)
     if style is None and isinstance(main_auth, AuthConfig):
@@ -756,6 +800,9 @@ def main(argv: list[str] | None = None) -> None:
                         help="re-include operations dropped by --read-only (repeatable)")
     p_list.add_argument("--deny", action="append", metavar="REGEX",
                         help="never expose matching paths, overrides --allow (repeatable)")
+    p_list.add_argument("--cost", action="store_true",
+                        help="estimate the context cost of the surface (~4 chars/token) — "
+                        "the price every agent pays in every tools/list")
     p_list.add_argument("--json", action="store_true", help="machine-readable output")
 
     p_serve = sub.add_parser("serve", help="start the MCP server on stdio (or --http for Streamable HTTP)")
@@ -887,23 +934,23 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
 
     elif args.command == "list":
+        from .tools import surface_cost_tokens, tool_cost_tokens
+
+        want_cost = bool(getattr(args, "cost", False))
         if args.json:
-            print(
-                json.dumps(
-                    [
-                        {
-                            "name": t["name"],
-                            "method": t["_meta"]["method"],
-                            "path": t["_meta"]["path"],
-                            "deprecated": t["_meta"]["deprecated"],
-                            "description": t["description"],
-                        }
-                        for t in tools
-                    ],
-                    ensure_ascii=False,
-                    indent=2,
-                )
-            )
+            rows = []
+            for t in tools:
+                row = {
+                    "name": t["name"],
+                    "method": t["_meta"]["method"],
+                    "path": t["_meta"]["path"],
+                    "deprecated": t["_meta"]["deprecated"],
+                    "description": t["description"],
+                }
+                if want_cost:
+                    row["cost_tokens"] = tool_cost_tokens(t)
+                rows.append(row)
+            print(json.dumps(rows, ensure_ascii=False, indent=2))
             return
         def bold(s: str) -> str:
             return f"\033[1m{s}\033[0m" if USE_COLOR else s
@@ -926,8 +973,14 @@ def main(argv: list[str] | None = None) -> None:
                 f"{meta['path']}{body}{deprecated_badge}"
             )
             if desc:
-                print(f"  {'':36} {dim(desc[:90])}")
+                cost = f" {dim(f'~{tool_cost_tokens(tool)} tok')}" if want_cost else ""
+                print(f"  {'':36} {dim(desc[:90])}{cost}")
         print(dim("─" * 78))
+        if want_cost:
+            total = surface_cost_tokens(tools)
+            print(dim(f"surface cost: ~{total:,} tokens (~{total * 4 / 1024:.0f} KB) — "
+                      "paid in EVERY tools/list by every agent; cut it with "
+                      "--tag/--include/--exclude/--lazy"))
         print(dim(f"serve it: mcpify serve {args.spec}"))
 
     elif args.command == "serve" and entries is not None:
@@ -991,7 +1044,8 @@ def main(argv: list[str] | None = None) -> None:
         write_auth = _resolve_write_auth(args, auth)
         if write_auth is not None:
             print(
-                f"mcpify: auth split — reads use {args.auth_env}, writes use {args.write_auth_env}",
+                f"mcpify: auth split — reads use {args.auth_env}, "
+                f"writes use {getattr(write_auth, 'env_var', None) or args.write_oauth2_token_url}",
                 file=sys.stderr,
             )
         from .api_server import ApiServer
@@ -1006,6 +1060,7 @@ def main(argv: list[str] | None = None) -> None:
             server_name=args.name,
             auth=auth,
             write_auth=write_auth,
+            fields=_parse_fields(getattr(args, "fields", None), "--fields"),
             timeout=args.timeout,
             tools=tools,
             lazy=args.lazy,
@@ -1125,7 +1180,8 @@ def main(argv: list[str] | None = None) -> None:
         write_auth = _resolve_write_auth(args, auth)
         if write_auth is not None:
             print(
-                f"mcpify: auth split — reads use {args.auth_env}, writes use {args.write_auth_env}",
+                f"mcpify: auth split — reads use {args.auth_env}, "
+                f"writes use {getattr(write_auth, 'env_var', None) or args.write_oauth2_token_url}",
                 file=sys.stderr,
             )
         from .api_server import ApiServer
@@ -1140,6 +1196,7 @@ def main(argv: list[str] | None = None) -> None:
             server_name=args.name,
             auth=auth,
             write_auth=write_auth,
+            fields=_parse_fields(getattr(args, "fields", None), "--fields"),
             timeout=args.timeout,
             tools=tools,
             lazy=args.lazy,
@@ -1179,7 +1236,8 @@ def main(argv: list[str] | None = None) -> None:
         write_auth = _resolve_write_auth(args, auth)
         if write_auth is not None:
             print(
-                f"mcpify: auth split — reads use {args.auth_env}, writes use {args.write_auth_env}",
+                f"mcpify: auth split — reads use {args.auth_env}, "
+                f"writes use {getattr(write_auth, 'env_var', None) or args.write_oauth2_token_url}",
                 file=sys.stderr,
             )
         from .api_server import ApiServer
@@ -1194,6 +1252,7 @@ def main(argv: list[str] | None = None) -> None:
             server_name=args.name,
             auth=auth,
             write_auth=write_auth,
+            fields=_parse_fields(getattr(args, "fields", None), "--fields"),
             timeout=args.timeout,
             tools=tools,
             lazy=args.lazy,

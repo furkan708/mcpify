@@ -11,7 +11,7 @@ English | [Türkçe](README.tr.md)
   <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
 </p>
 
-[![Tests](https://img.shields.io/badge/tests-410%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-430%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
 [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/ci.yml)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-4A90D9)](server.json)
@@ -26,7 +26,7 @@ English | [Türkçe](README.tr.md)
 
 **Turn any OpenAPI REST API into an [MCP](https://modelcontextprotocol.io) server** — so Claude Code, Cursor, and every other MCP client can call your API directly.
 
-mcpify is **focused, production-ready, and CLI-first**: one job (OpenAPI → MCP), zero runtime dependencies. Focused doesn't mean small — 410 tests across twenty-five suites, two transports (stdio + HTTP), dual MCP-spec compatibility, OAuth2, a policy layer, ETag-aware caching, safe retries, health probes, an audit trail, per-token tool RBAC, split read/write credentials and plugin hooks back that one job.
+mcpify is **focused, production-ready, and CLI-first**: one job (OpenAPI → MCP), zero runtime dependencies. Focused doesn't mean small — 430 tests across twenty-six suites, two transports (stdio + HTTP with SSE responses), dual MCP-spec compatibility, OAuth2, a policy layer, ETag-aware caching, safe retries, health probes, an audit trail, per-token tool RBAC, split read/write credentials and plugin hooks back that one job.
 
 
 Your company has a REST API. Your AI agent needs to call it. Until now that
@@ -76,6 +76,13 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
 - **Valid truncation** — oversized responses are cut along JSON structure (fewer items,
   an explicit `"truncated": true` marker), never mid-document — the model never receives
   half a JSON file
+- **See the bill before serving** — `mcpify list --cost` estimates the context cost of
+  the surface (~4 chars/token): every agent pays it in every `tools/list`, so know the
+  number before you cut it
+- **Token-cutting projections** — `--fields id,name` keeps only the requested top-level
+  keys in responses (each item of a top-level array) — predictable, documented boundaries
+- **SSE responses on HTTP** — clients that speak `text/event-stream` get Streamable-HTTP
+  SSE framing; JSON clients get JSON; the transport stays stateless
 - **`mcpify doctor`** — tells you if your spec is agent-friendly before you ship, including
   instruction-like tool text (spec authors become prompt authors — doctor makes that visible)
 - **Multiple environments? Pick one.** Specs declaring
@@ -136,7 +143,7 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   `outputSchema`/`structuredContent`, remediation-grade errors that teach the
   next call, dry-run request previews, and a `--lazy` search-then-call mode
   that cut api.weather.gov's listing by **95.5%** (38,882 → 1,741 chars)
-- **410 tests across twenty-five suites** — including full MCP protocol runs
+- **430 tests across twenty-six suites** — including full MCP protocol runs
   over stdio *and* over HTTP against real local APIs and the **live
   api.weather.gov document** (69 tools, 16 enum'd parameters)
 
@@ -338,7 +345,9 @@ mcpify ui <spec> [same serve flags]         # local dashboard (tool explorer, he
 mcpify mock <spec> [--http 8000] [--delay-ms N]
 mcpify diff OLD NEW [--json] [--fail-on-breaking]   # spec upgrade report + CI gate
 mcpify config-schema                        # JSON Schema for .mcpify.toml (editor wiring)
-# credential split: --write-auth-env WRITE_KEY_ENV  (reads keep --auth-env)
+mcpify list <spec> --cost                   # estimate the surface's context cost
+# credential split: --write-auth-env WRITE_KEY_ENV or --write-oauth2-token-url (reads keep --auth-env)
+# response projection: --fields id,name       # SSE: POST answers as text/event-stream when the client asks
 # tool-text overrides: [tool-text.TOOL] description = "..." in .mcpify.toml
 mcpify doctor <spec>
 
@@ -447,9 +456,10 @@ mcpify/
 
 ## Roadmap
 
-- [ ] SSE streaming responses for the HTTP transport (server-initiated messages)
-- [ ] Token-cost estimation (`list --cost`), field projection (`--fields`), SSE streaming
-- [ ] Second OAuth2 token flow so the credential split covers OAuth2 too
+The v1.6–1.13 roadmap is fully shipped. Possible future work (not promised):
+server-initiated SSE (a GET stream with sessions — deliberately out for a
+stateless transport), token estimates for lazy search results.
+- [x] ~~OAuth2 write flow (`--write-oauth2-*`), `list --cost`, `--fields` projection, SSE POST responses~~ — shipped in v1.13.0
 - [x] ~~Read/write credential split, tool-text overrides, doctor prompt-hygiene audit, structure-aware truncation~~ — shipped in v1.12.0
 - [x] ~~Spec diff + audit log + per-token RBAC + plugin hooks + config JSON Schema + external `$ref` bundling + OTel extra~~ — shipped in v1.11.0
 - [x] ~~Web dashboard, Prometheus metrics, mock server, hot reload~~ — shipped in v1.10.0

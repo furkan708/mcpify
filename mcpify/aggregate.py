@@ -117,6 +117,7 @@ class AggregatedServer(ApiServer):
             "retry": entry["retry"],
             "retry_delay": entry["retry_delay"],
             "wait_on_429": entry["wait_on_429"],
+            "fields": entry.get("fields"),
         }
 
     def _health(self) -> dict[str, Any]:

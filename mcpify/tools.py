@@ -340,6 +340,27 @@ class RequestError(ValueError):
     """Raised when arguments cannot form a valid HTTP request."""
 
 
+def tool_cost_tokens(tool: dict[str, Any]) -> int:
+    """Estimate the context cost of ONE tool definition (~4 chars/token).
+
+    Name + description + full input schema — everything an agent's client
+    puts into every tools/list payload. Estimates, not measurements: the
+    exact number depends on the client's serializer and the model's
+    tokenizer. Good enough to decide WHAT to cut before serving.
+    """
+    payload = (
+        str(tool.get("name", ""))
+        + str(tool.get("description", ""))
+        + json.dumps(tool.get("inputSchema") or {}, ensure_ascii=False)
+    )
+    return max(1, len(payload) // 4)
+
+
+def surface_cost_tokens(tools: list[dict[str, Any]]) -> int:
+    """Total context cost of a tool surface, per tool_cost_tokens."""
+    return sum(tool_cost_tokens(tool) for tool in tools)
+
+
 def build_request(
     base_url: str,
     meta: dict[str, Any],

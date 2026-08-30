@@ -32,6 +32,10 @@ KNOWN_KEYS = frozenset({
     "oauth2-token-url", "oauth2-client-id-env", "oauth2-client-secret-env",
     "oauth2-scope", "oauth2-client-auth", "http", "http-token", "wait-on-429",
     "write-auth-env", "write-auth-style", "write-auth-name",
+    "fields",
+    "write-oauth2-token-url", "write-oauth2-client-id-env",
+    "write-oauth2-client-secret-env", "write-oauth2-scope",
+    "write-oauth2-client-auth",
 })
 
 _ENV_KEYS = KNOWN_KEYS - {"default-env"}
@@ -46,6 +50,10 @@ _API_KEYS = frozenset({
     "exclude", "read-only", "allow", "deny", "cache-ttl", "retry",
     "retry-delay", "strict", "format", "wait-on-429",
     "write-auth-env", "write-auth-style", "write-auth-name",
+    "fields",
+    "write-oauth2-token-url", "write-oauth2-client-id-env",
+    "write-oauth2-client-secret-env", "write-oauth2-scope",
+    "write-oauth2-client-auth",
 })
 
 

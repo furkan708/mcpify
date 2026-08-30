@@ -366,6 +366,31 @@ def remediation(result: dict[str, Any], tool: dict[str, Any] | None = None, know
     return "\n" + "\n".join("- " + tip for tip in tips)
 
 
+def parse_fields(raw: str | None) -> frozenset[str]:
+    """Parse --fields "id,name" into a clean set (CLI + config share it)."""
+    if not raw:
+        return frozenset()
+    fields = frozenset(part.strip() for part in str(raw).split(",") if part.strip())
+    if not fields:
+        raise ValueError("--fields is empty after parsing (expected comma-separated key names)")
+    return fields
+
+
+def project_json(data: Any, fields: frozenset[str]) -> Any:
+    """Keep only the requested TOP-LEVEL keys of a JSON response.
+
+    Applied to the response object itself, or to every item when the
+    response is a top-level array. Nested objects are deliberately left
+    intact — the projection boundary is the documented, predictable one
+    (no surprise removals two levels deep).
+    """
+    if isinstance(data, dict):
+        return {key: value for key, value in data.items() if key in fields}
+    if isinstance(data, list):
+        return [project_json(item, fields) for item in data]
+    return data
+
+
 def _smart_truncate(body: str, limit: int) -> str:
     """Shrink an oversized body WITHOUT handing the model broken syntax.
 

@@ -863,6 +863,53 @@ able to fix the text without forking the spec. Keys are final tool names
 doctor` flags instruction-like or docs-grade-verbose descriptions so you
 know where to start.
 
+### `--fields` — response projection
+
+```bash
+mcpify serve spec.yaml --fields id,name,status
+```
+
+Successful JSON responses keep only the requested top-level keys — applied
+to the response object itself, or to every item when the response is a
+top-level array. Nested objects are deliberately untouched: the boundary
+is documented and predictable, so the agent never loses a field two levels
+deep that it did not ask about. Per API: `fields = "id,name"` in
+`[apis.NAME]`. Combine with `--cache-ttl` for cheap repeated reads.
+
+### `mcpify list --cost` — know the bill before serving
+
+```bash
+mcpify list openapi.yaml --cost
+mcpify list openapi.yaml --json --cost     # cost_tokens per tool
+```
+
+Prints an estimated context cost for the surface (~4 chars/token over name
++ description + input schema): the price every agent pays in EVERY
+`tools/list`. Estimates, not measurements — but exact enough to decide
+what to cut (`--tag`, `--include`, `--lazy`, or `[tool-text]` to shorten
+descriptions).
+
+### OAuth2 write split (`--write-oauth2-*`)
+
+```bash
+mcpify serve spec.yaml \
+  --oauth2-token-url https://auth.example.com/token --oauth2-client-id-env READ_CLIENT \
+  --write-oauth2-token-url https://auth.example.com/token --write-oauth2-client-id-env WRITE_CLIENT
+```
+
+A second client-credentials token flow for non-GET calls: reads
+authenticate as the read client, writes as the write client. Each flow
+caches its own token; the 401 self-heal applies to both. Mutually
+exclusive with `--write-auth-env` (pick one credential kind for writes).
+
+### SSE responses (Streamable HTTP)
+
+Clients that send `Accept: text/event-stream` on POST get the response as
+a single `message` event (`text/event-stream`); JSON-only clients keep
+getting `application/json`. The transport stays stateless — one event,
+then the stream closes. Server-initiated messages (a GET SSE stream with
+sessions) remain deliberately out of scope.
+
 ### `--otel` — one span per upstream call
 
 ```bash

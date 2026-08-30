@@ -6,6 +6,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-08-30
+
+### Added — the token-budget release (completes the v1.6→1.13 roadmap)
+- **`mcpify list --cost`:** estimated context cost of the tool surface
+  (~4 chars/token over name + description + input schema), with a
+  per-tool `cost_tokens` in `--json` and a cut-it hint in the human
+  output. The bill every agent pays in every `tools/list`, visible
+  before serving.
+- **`--fields` response projection:** successful JSON responses keep
+  only the requested top-level keys (applied to each item of a
+  top-level array; nested objects untouched — a documented, predictable
+  boundary). Per API via `fields = "id,name"` in `[apis.NAME]`/`[serve]`.
+- **SSE POST responses (Streamable HTTP):** clients that send
+  `Accept: text/event-stream` receive the JSON-RPC response as a single
+  `message` event; JSON clients keep `application/json`. Stateless by
+  design — one event, stream closes. Server-initiated GET streams stay
+  deliberately out of scope.
+- **OAuth2 write split (`--write-oauth2-token-url` + client/scope
+  flags):** a second client-credentials token flow so non-GET calls
+  authenticate as a different OAuth2 client. Each flow caches its own
+  token; 401 self-heal covers both. Mutually exclusive with
+  `--write-auth-env`; the v1.12 static-write-with-OAuth2-main refusal
+  is lifted (styles are independent now).
+- 18 new tests (430 total, twenty-six suites).
+
 ## [1.12.1] - 2026-08-30
 
 ### Fixed — found by running mcpify against live APIs

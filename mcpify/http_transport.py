@@ -142,7 +142,27 @@ class _MCPHandler(http.server.BaseHTTPRequestHandler):
         scopes = type(self).token_scopes.get(self._bearer_value()) if type(self).token_scopes else None
         if scopes:
             response = _apply_scopes(response, decoded, scopes)
+        accept = self.headers.get("Accept", "")
+        if "text/event-stream" in accept:
+            # Streamable HTTP: a server MAY answer a POST with an SSE
+            # stream. Stateless serving sends exactly one `message` event
+            # (the JSON-RPC response) and closes — clients that speak SSE
+            # get their preferred framing, everyone else gets JSON.
+            self._send_sse(response)
+            return
         self._send(200, response)
+
+    def _send_sse(self, response: dict[str, Any]) -> None:
+        payload = json.dumps(response, ensure_ascii=False)
+        body = f"event: message\ndata: {payload}\n\n".encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache, no-transform")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
+        self.wfile.flush()
+        self.close_connection = True  # no Content-Length: frame ends with the connection
 
     def do_GET(self) -> None:
         self._send(
