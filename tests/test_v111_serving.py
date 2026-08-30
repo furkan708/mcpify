@@ -130,7 +130,7 @@ def test_audit_end_to_end(mcp_http, tmp_path):
 def test_audit_fail_safe_on_unwritable_path(mcp_http, tmp_path):
     audit.enable(str(tmp_path / "missing_dir" / "a.jsonl"))
     try:
-        status, body = post(mcp_http, rpc("tools/call", {"name": "list_pets", "arguments": {}}))
+        status, _body = post(mcp_http, rpc("tools/call", {"name": "list_pets", "arguments": {}}))
         assert status == 200  # serving survives the broken audit file
     finally:
         audit.disable()
