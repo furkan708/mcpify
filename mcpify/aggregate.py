@@ -92,6 +92,7 @@ class AggregatedServer(ApiServer):
             timeout=first["timeout"],
             tools=merged,
             lazy=lazy,
+            write_auth=first.get("write_auth"),
             enable_preview=enable_preview,
             response_format=response_format,
         )
@@ -105,9 +106,12 @@ class AggregatedServer(ApiServer):
 
     def _context_for(self, tool: dict[str, Any]) -> dict[str, Any]:
         entry = self.entries[self._owners[tool["name"]]]
+        auth = entry["auth"]
+        if entry.get("write_auth") is not None and tool["_meta"]["method"] != "GET":
+            auth = entry["write_auth"]
         return {
             "base": entry["base"],
-            "auth": entry["auth"],
+            "auth": auth,
             "timeout": entry["timeout"],
             "cache": entry["cache"],
             "retry": entry["retry"],

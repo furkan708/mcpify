@@ -85,10 +85,10 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 
 - **Odaklı ve üretim hazırı:** Tek iş (OpenAPI → MCP), tek arayüz (stdio
   üzerinde tek komut), sıfır runtime bağımlılığı. Odaklılık küçüklük demek değil:
-  24 pakette 389 test, iki transport (stdio + HTTP), çift MCP-spec uyumu, OAuth2,
+  25 pakette 410 test, iki transport (stdio + HTTP), çift MCP-spec uyumu, OAuth2,
   çok-API aggregation, politika katmanı, ETag-farkında cache, güvenli retry, health
-  sorgusu, audit kaydı, token-bazlı tool RBAC'ı ve plugin hook'ları bu tek işi
-  destekliyor.
+  sorgusu, audit kaydı, token-bazlı tool RBAC'ı, okuma/yazma kimlik ayrımı ve plugin
+  hook'ları bu tek işi destekliyor.
 - **Token bütçesi:** Her araç tanımı modelin bağlam penceresini (context) tüketir.
   mcpify'ın filtreleriyle yalnızca ilgili uçları açarsınız; CLI tabanlı yaklaşımlardan
   belirgin biçimde daha az token harcarsınız.
@@ -108,7 +108,7 @@ Tam liste: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
 ## Test ve kalite
 
-**389 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
+**410 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
 yükleyen canlı entegrasyon testidir (çevrimdışında otomatik atlanır).
 Tüm paketler Python 3.10–3.12 üzerinde Linux ve Windows'ta koşar; her
 push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
@@ -137,6 +137,7 @@ push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
 | Spec diff (`mcpify diff`) | 14 | eklenen/kaldırılan/değişen op'lar, breaking kararları (zorunlu param eklendi/zorunlu oldu, gövde zorunlu oldu, op kaldırma), deprecated & operationId uyarıları, migration rehberi, doküman-seviyesi diff, CLI çıkış sözleşmesi 0/1/2, `--json` |
 | v1.11 servis: audit, cache, RBAC, plugin | 17 | argüman parmak izli JSONL audit kaydı + bozuk dosyada fail-safe, bayat girdide ETag 304 doğrulaması, `mcpify_cache_invalidate` (kapsamlı + tam), `--cache-warm` yalnız argümansız GET'leri ısıtır, token dosyası uçtan uca (401 / filtreli liste / reddedilen çağrı, deny kazanır), gerçek isteklerde plugin hook'ları, `mcpify ui` dispatch (ölü komut regresyonu), `config-schema` config modülüyle birebir, OTel koruması |
 | Harici `$ref` paketleme | 6 | dosya + URL-bazlı hedefler içe alınır, yalnız-components hedef dosyaları, iç içe ref'ler kendi dosyasına göre çözülür, olmayan hedef atlanır, döngüsel ref'ler ayakta kalır, aynı-doküman ref'lere dokunulmaz |
+| Yönetişim: bölünmüş anahtar, tool metni, geçerli kısaltma | 21 | canlı upstream'de metot başına okuma/yazma anahtarı (paylaşılan-kimlik varsayılanı korunur), stil/isim kalıtımı + açık override, OAuth2 reddi, config `write-auth-*` anahtarları, `[tool-text]` override'ının `list --json`'a ulaşması, bilinmeyen-tool uyarıları, doğrulayıcı hataları, şema/anahtar eşliği, doctor talimat-vari + aşırı-uzun tanım sayıları, taşan array → işaretli geçerli JSON, object anahtar-tutma, JSON-olmayan yedeği, hata-öneki korunması |
 
 İlke: sahada bulunan her hata, düzeltme gönderilmeden önce regresyon
 testine çevrilir — paket yalnızca büyür.

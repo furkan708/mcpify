@@ -832,6 +832,37 @@ Hooks run best-effort: a raising hook is suppressed, the request still
 goes through. `AUTH`, when present, overrides `--auth-env`-style
 configuration (a note is printed when it does).
 
+### `--write-auth-env` — split the read and write identities
+
+```bash
+mcpify serve spec.yaml \
+  --auth-env READ_KEY \
+  --write-auth-env WRITE_KEY
+```
+
+GET calls carry the read credential; POST/PUT/PATCH/DELETE carry the write
+credential. A manipulated or over-eager read call can now only do what the
+read key allows — `--read-only` filters the surface, the split makes the
+*credential* match the policy. Style and header/query name are inherited
+from `--auth-style`/`--auth-name`; override with `--write-auth-style` /
+`--write-auth-name`. Per API: `write-auth-env` inside `[apis.NAME]`. Static
+credentials only — with OAuth2 the flag is refused (a second token flow is
+deliberate future work).
+
+### `[tool-text]` — the operator's last word on tool text
+
+```toml
+[tool-text.showPetById]
+description = "Fetch one pet by id. Returns 404 for unknown ids."
+```
+
+Spec authors wrote descriptions for humans; the model reads them as
+prompts. When the operator vouches for a surface, the operator should be
+able to fix the text without forking the spec. Keys are final tool names
+(aggregation prefixes included); unknown names warn on stderr; `mcpify
+doctor` flags instruction-like or docs-grade-verbose descriptions so you
+know where to start.
+
 ### `--otel` — one span per upstream call
 
 ```bash

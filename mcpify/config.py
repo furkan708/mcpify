@@ -31,6 +31,7 @@ KNOWN_KEYS = frozenset({
     "strict", "format", "verbose", "log-file", "default-env",
     "oauth2-token-url", "oauth2-client-id-env", "oauth2-client-secret-env",
     "oauth2-scope", "oauth2-client-auth", "http", "http-token", "wait-on-429",
+    "write-auth-env", "write-auth-style", "write-auth-name",
 })
 
 _ENV_KEYS = KNOWN_KEYS - {"default-env"}
@@ -44,6 +45,7 @@ _API_KEYS = frozenset({
     "oauth2-scope", "oauth2-client-auth", "timeout", "tag", "include",
     "exclude", "read-only", "allow", "deny", "cache-ttl", "retry",
     "retry-delay", "strict", "format", "wait-on-429",
+    "write-auth-env", "write-auth-style", "write-auth-name",
 })
 
 
@@ -212,6 +214,21 @@ def validate(data: dict[str, Any]) -> list[str]:
                     f"apis.{api_name}.{k}: unknown key"
                     for k in section
                     if k not in _API_KEYS
+                )
+        elif key == "tool-text":
+            if not isinstance(value, dict) or not value:
+                problems.append("tool-text: must be a table of at least one tool ([tool-text.TOOL_NAME])")
+                continue
+            for tool_name, override in value.items():
+                if not isinstance(override, dict):
+                    problems.append(f"tool-text.{tool_name}: must be a table")
+                    continue
+                if "description" not in override:
+                    problems.append(f"tool-text.{tool_name}: missing 'description' (the only overridable field)")
+                elif not isinstance(override["description"], str):
+                    problems.append(f"tool-text.{tool_name}.description: must be a string")
+                problems.extend(
+                    f"tool-text.{tool_name}.{k}: unknown key" for k in override if k != "description"
                 )
         elif key not in KNOWN_KEYS:
             problems.append(f"{key}: unknown key (put serve settings under [serve])")

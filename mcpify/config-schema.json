@@ -143,6 +143,20 @@
         "wait-on-429": {
           "type": "number",
           "minimum": 0
+        },
+        "write-auth-env": {
+          "type": "string"
+        },
+        "write-auth-style": {
+          "enum": [
+            "bearer",
+            "basic",
+            "header",
+            "query"
+          ]
+        },
+        "write-auth-name": {
+          "type": "string"
         }
       }
     },
@@ -283,6 +297,20 @@
           "wait-on-429": {
             "type": "number",
             "minimum": 0
+          },
+          "write-auth-env": {
+            "type": "string"
+          },
+          "write-auth-style": {
+            "enum": [
+              "bearer",
+              "basic",
+              "header",
+              "query"
+            ]
+          },
+          "write-auth-name": {
+            "type": "string"
           }
         }
       }
@@ -403,8 +431,38 @@
           "wait-on-429": {
             "type": "number",
             "minimum": 0
+          },
+          "write-auth-env": {
+            "type": "string"
+          },
+          "write-auth-style": {
+            "enum": [
+              "bearer",
+              "basic",
+              "header",
+              "query"
+            ]
+          },
+          "write-auth-name": {
+            "type": "string"
           }
         }
+      }
+    },
+    "tool-text": {
+      "type": "object",
+      "description": "Per-tool description overrides \u2014 the operator's last word on model-facing text. Keys are final tool names (aggregation prefixes included).",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "description"
+        ]
       }
     }
   }

@@ -366,18 +366,71 @@ def remediation(result: dict[str, Any], tool: dict[str, Any] | None = None, know
     return "\n" + "\n".join("- " + tip for tip in tips)
 
 
+def _smart_truncate(body: str, limit: int) -> str:
+    """Shrink an oversized body WITHOUT handing the model broken syntax.
+
+    A raw byte cut mid-JSON produces a document that looks complete but
+    cannot be parsed — the model then reasons over a fragment. JSON
+    bodies are cut along structure instead: arrays keep their first
+    items inside a wrapper object, objects keep the top-level keys that
+    fit; both carry an explicit truncation marker. The serialized result
+    is measured honestly (indentation included) and shrunk until it
+    really fits. Non-JSON bodies fall back to the character cut (there
+    is no structure to preserve).
+    """
+    if len(body) <= limit:
+        return body
+
+    def byte_cut() -> str:
+        kesilen = len(body) - limit
+        return body[:limit] + f"\n… [truncated {kesilen:,} more characters]"
+
+    try:
+        data = json.loads(body)
+    except (json.JSONDecodeError, ValueError):
+        return byte_cut()
+
+    if isinstance(data, list):
+        kept_count = len(data)
+        while kept_count > 0:
+            text = json.dumps(
+                {"truncated": True, "showing": kept_count,
+                 "omitted": len(data) - kept_count, "items": data[:kept_count]},
+                ensure_ascii=False, indent=2,
+            )
+            if len(text) <= limit:
+                return text
+            kept_count = (kept_count * 9) // 10 if kept_count > 20 else kept_count - 1
+        return byte_cut()  # even a single item overflows
+
+    if isinstance(data, dict):
+        keys = list(data)
+        kept_count = len(keys)
+        while kept_count > 0:
+            kept_obj = {key: data[key] for key in keys[:kept_count]}
+            if kept_count < len(keys):
+                kept_obj["mcpify_truncated"] = True
+                kept_obj["mcpify_omitted_keys"] = keys[kept_count:]
+            text = json.dumps(kept_obj, ensure_ascii=False, indent=2)
+            if len(text) <= limit:
+                return text
+            kept_count = (kept_count * 9) // 10 if kept_count > 20 else kept_count - 1
+        return byte_cut()  # even a single key overflows
+
+    return byte_cut()
+
+
 def format_result(result: dict[str, Any]) -> tuple[str, bool]:
     """Format an execute() result for an MCP tool response: (text, is_error).
 
     Oversized bodies are truncated so a single tool call cannot blow the
-    client's context window.
+    client's context window — JSON is cut along structure (see
+    _smart_truncate), never mid-document.
     """
     body = result["body"]
     if result["json"] is not None:
         body = json.dumps(result["json"], ensure_ascii=False, indent=2)
-    if len(body) > MAX_RESULT_CHARS:
-        kesilen = len(body) - MAX_RESULT_CHARS
-        body = body[:MAX_RESULT_CHARS] + f"\n… [truncated {kesilen:,} more characters]"
+    body = _smart_truncate(body, MAX_RESULT_CHARS)
     is_error = result["status"] == 0 or result["status"] >= 400
     if is_error:
         return f"HTTP {result['status']}\n{body}", is_error

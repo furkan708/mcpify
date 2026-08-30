@@ -159,6 +159,14 @@ def _add_serve_options(p: argparse.ArgumentParser, with_http: bool) -> None:
         "security declarations, else bearer)",
     )
     p.add_argument("--auth-name", help="header or query parameter name for non-bearer auth")
+    p.add_argument("--write-auth-env", default=None,
+                   help="separate credential for NON-GET calls (POST/PUT/PATCH/DELETE): reads go out "
+                   "on --auth-env, writes on this one — least-privilege keys instead of one shared "
+                   "identity; style/name are inherited from --auth-style/--auth-name unless overridden")
+    p.add_argument("--write-auth-style", choices=("bearer", "basic", "header", "query"), default=None,
+                   help="style for the write credential (default: inherit --auth-style)")
+    p.add_argument("--write-auth-name", default=None,
+                   help="header/query name for the write credential (default: inherit --auth-name)")
     p.add_argument("--wait-on-429", type=float, default=0.0, metavar="SEC",
                    help="on 429, honor Retry-After (or the retry delay) once for "
                    "idempotent calls when the wait is at most SEC seconds (default: off)")
@@ -475,6 +483,7 @@ def _build_entries(args: argparse.Namespace, data: dict[str, Any]) -> list[dict[
             ("oauth2_client_secret_env", None), ("oauth2_scope", None),
             ("oauth2_client_auth", "basic"), ("timeout", 30.0), ("cache_ttl", 0.0),
             ("retry", 0), ("retry_delay", 1.0), ("wait_on_429", 0.0),
+            ("write_auth_env", None), ("write_auth_style", None), ("write_auth_name", None),
         ):
             if not hasattr(ns, attr):
                 setattr(ns, attr, default)
@@ -501,12 +510,20 @@ def _build_entries(args: argparse.Namespace, data: dict[str, Any]) -> list[dict[
                     f"credential is configured — add {hint}",
                     file=sys.stderr,
                 )
+        write_auth = _resolve_write_auth(ns, auth)
+        if write_auth is not None:
+            print(
+                f"mcpify [{label}]: auth split — reads use {ns.auth_env}, "
+                f"writes use {ns.write_auth_env}",
+                file=sys.stderr,
+            )
         entries.append({
             "label": label,
             "spec": spec,
             "spec_path": ns.spec,
             "base": base,
             "auth": auth,
+            "write_auth": write_auth,
             "timeout": float(ns.timeout),
             "cache": ResponseCache(ns.cache_ttl) if ns.cache_ttl and ns.cache_ttl > 0 else None,
             "retry": int(ns.retry or 0),
@@ -515,6 +532,94 @@ def _build_entries(args: argparse.Namespace, data: dict[str, Any]) -> list[dict[
             "tools": tools,
         })
     return entries
+
+
+# Tool text is model-facing: phrases that read as instructions to a model
+# (not as documentation to a human) get flagged by `mcpify doctor`.
+def _resolve_write_auth(
+    args: argparse.Namespace,
+    main_auth: AuthConfig | OAuth2ClientCredentials | None,
+) -> AuthConfig | None:
+    """Build the dedicated NON-GET credential (--write-auth-env), or None.
+
+    Style/name inherit from the primary static credential unless
+    explicitly overridden, so the common case is one flag:
+    `--auth-env READ_KEY --write-auth-env WRITE_KEY`. Reads and writes
+    then carry different server-side identities — the blast radius of a
+    read call is the read key's, not the write key's. Not available with
+    OAuth2 yet: a second client-credentials flow is its own design.
+    """
+    from .http_client import OAuth2ClientCredentials
+
+    env = getattr(args, "write_auth_env", None)
+    if not env:
+        return None
+    if isinstance(main_auth, OAuth2ClientCredentials):
+        _fail(
+            "--write-auth-env is not supported with OAuth2 credentials yet — "
+            "a second client-credentials token flow needs its own design"
+        )
+    style = getattr(args, "write_auth_style", None)
+    name = getattr(args, "write_auth_name", None)
+    if style is None and isinstance(main_auth, AuthConfig):
+        style = main_auth.style
+        name = name or main_auth.name
+    return AuthConfig(env, style or "bearer", name)
+
+
+def _apply_tool_text(tools: list[dict[str, Any]], data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Apply [tool-text.TOOL] description overrides from .mcpify.toml.
+
+    Spec authors write for humans; the operator vouches for the surface,
+    so the operator gets the last word on tool descriptions. Tool dict
+    objects are shared with the server's by_name index, so in-place
+    mutation reaches tools/list, search and get_schema everywhere.
+    Overrides key the FINAL tool name (aggregation prefixes included).
+    """
+    overrides = data.get("tool-text") if isinstance(data, dict) else None
+    if not isinstance(overrides, dict) or not overrides:
+        return tools
+    by_name = {tool["name"]: tool for tool in tools}
+    for name, section in overrides.items():
+        tool = by_name.get(str(name))
+        if tool is None:
+            print(
+                f"note: [tool-text.{name}] matches no tool — overrides use the final tool "
+                "name (check `mcpify list`)",
+                file=sys.stderr,
+            )
+            continue
+        description = section.get("description") if isinstance(section, dict) else None
+        if isinstance(description, str):
+            tool["description"] = description
+    return tools
+
+
+_INSTRUCTION_TEXT_RE = re.compile(
+    r"\b(?:ignore|disregard|forget)\s+(?:all\s+|any\s+)?(?:previous|prior|above|earlier)"
+    r"|\byou\s+(?:must|should|are)\b"
+    r"|\bdo\s+not\s+(?:tell|reveal|mention|disclose)\b"
+    r"|\bkeep\s+(?:this|it|these)\s+(?:secret|confidential|private)\b"
+    r"|\bsystem\s+prompt\b"
+    r"|\breveal\s+(?:your|the|its)\b"
+    r"|\bnew\s+instructions?\b",
+    re.IGNORECASE,
+)
+_LONG_DESCRIPTION_CHARS = 1200
+
+
+def _tool_text_issues(spec: dict[str, Any]) -> tuple[int, int]:
+    """(instruction_like, overlong) counts across operation summaries and
+    descriptions — the 'spec authors become prompt authors' audit."""
+    instruction = 0
+    overlong = 0
+    for _method, _path, operation in iter_operations(spec):
+        text = f"{operation.get('summary') or ''} {operation.get('description') or ''}"
+        if _INSTRUCTION_TEXT_RE.search(text):
+            instruction += 1
+        if len(operation.get("description") or "") > _LONG_DESCRIPTION_CHARS:
+            overlong += 1
+    return instruction, overlong
 
 
 def _auth_hint(spec: dict[str, Any] | None) -> str | None:
@@ -641,7 +746,8 @@ def main(argv: list[str] | None = None) -> None:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_list = sub.add_parser("list", help="preview the tools that would be generated")
-    p_list.add_argument("spec", help="path or URL of an OpenAPI document")
+    p_list.add_argument("spec", nargs="?", help="path or URL of an OpenAPI document "
+                        "(optional when `spec` is set in the config)")
     p_list.add_argument("--tag", help="only operations with this tag")
     p_list.add_argument("--include", action="append", help="only these path prefixes (repeatable)")
     p_list.add_argument("--exclude", action="append", help="skip these path prefixes (repeatable)")
@@ -718,13 +824,13 @@ def main(argv: list[str] | None = None) -> None:
 
     config_path = None
     config_data: dict[str, Any] = {}
-    if args.command in ("serve", "status", "try", "ui"):
+    if args.command in ("list", "serve", "status", "try", "ui"):
         try:
             config_path, config_data = load_config(getattr(args, "config", None))
             if config_path is not None:
                 for problem in validate(config_data):
                     print(f"config warning: {problem}", file=sys.stderr)
-                settings = resolve(config_data, args.env)
+                settings = resolve(config_data, getattr(args, "env", None))
                 apply_to_namespace(settings, args)
                 if not api_sections(config_data) and settings.get("spec") and getattr(args, "spec", None) is None:
                     args.spec = settings["spec"]
@@ -755,7 +861,7 @@ def main(argv: list[str] | None = None) -> None:
         except SpecError as err:
             _fail(str(err))
         all_tools = spec_to_tools(spec, strict=getattr(args, "strict", False))
-        tools = filter_tools(all_tools, args)
+        tools = _apply_tool_text(filter_tools(all_tools, args), config_data)
         if not tools:
             _fail("no operations matched (the API would expose 0 tools)")
 
@@ -841,10 +947,15 @@ def main(argv: list[str] | None = None) -> None:
         if getattr(args, "metrics", None):
             _start_metrics(args.metrics)
         if getattr(args, "reload", False):
+            def reload_aggregated() -> None:
+                agg_server.reload_entries(_build_entries(args, config_data))
+                _apply_tool_text(agg_server.tools, config_data)
+
             _start_reload(
                 [str(entry.get("spec_path", "")) for entry in entries],
-                lambda: agg_server.reload_entries(_build_entries(args, config_data)),
+                reload_aggregated,
             )
+        _apply_tool_text(agg_server.tools, config_data)
         _wire_serve_extras(args, agg_server)
         if getattr(args, "http", None):
             from .http_transport import parse_http_bind, serve_http
@@ -877,6 +988,12 @@ def main(argv: list[str] | None = None) -> None:
                     f"configured — add {hint}",
                     file=sys.stderr,
                 )
+        write_auth = _resolve_write_auth(args, auth)
+        if write_auth is not None:
+            print(
+                f"mcpify: auth split — reads use {args.auth_env}, writes use {args.write_auth_env}",
+                file=sys.stderr,
+            )
         from .api_server import ApiServer
 
         try:
@@ -888,6 +1005,7 @@ def main(argv: list[str] | None = None) -> None:
             base,
             server_name=args.name,
             auth=auth,
+            write_auth=write_auth,
             timeout=args.timeout,
             tools=tools,
             lazy=args.lazy,
@@ -902,7 +1020,11 @@ def main(argv: list[str] | None = None) -> None:
         if getattr(args, "metrics", None):
             _start_metrics(args.metrics)
         if getattr(args, "reload", False):
-            _start_reload([args.spec], lambda: server.reload_tools(_rebuild_single_tools(args)))
+            def reload_single() -> None:
+                server.reload_tools(_apply_tool_text(_rebuild_single_tools(args), config_data))
+
+            _start_reload([args.spec], reload_single)
+        _apply_tool_text(server.tools, config_data)
         _wire_serve_extras(args, server)
         if getattr(args, "http", None):
             from .http_transport import parse_http_bind, serve_http
@@ -971,10 +1093,15 @@ def main(argv: list[str] | None = None) -> None:
         if getattr(args, "metrics", None):
             _start_metrics(args.metrics)
         if getattr(args, "reload", False):
+            def reload_aggregated_ui() -> None:
+                agg_server.reload_entries(_build_entries(args, config_data))
+                _apply_tool_text(agg_server.tools, config_data)
+
             _start_reload(
                 [str(entry.get("spec_path", "")) for entry in entries],
-                lambda: agg_server.reload_entries(_build_entries(args, config_data)),
+                reload_aggregated_ui,
             )
+        _apply_tool_text(agg_server.tools, config_data)
         _wire_serve_extras(args, agg_server)
         if getattr(args, "http_token_file", None):
             print("note: --http-token-file scopes apply to the MCP transport (mcpify serve --http); "
@@ -985,8 +1112,7 @@ def main(argv: list[str] | None = None) -> None:
             _fail(f"--http {args.http}: {err}")
         token = args.http_token or os.environ.get("MCPIFY_HTTP_TOKEN") or None
         serve_ui(agg_server, host, port, token, config_path,
-                 reload_cb=(lambda: agg_server.reload_entries(_build_entries(args, config_data)))
-                 if getattr(args, "reload", False) else None)
+                 reload_cb=reload_aggregated_ui if getattr(args, "reload", False) else None)
 
     elif args.command == "ui":
         from .http_client import set_logging
@@ -996,6 +1122,12 @@ def main(argv: list[str] | None = None) -> None:
         from .ui import serve_ui
 
         auth = _resolve_auth(args, spec)
+        write_auth = _resolve_write_auth(args, auth)
+        if write_auth is not None:
+            print(
+                f"mcpify: auth split — reads use {args.auth_env}, writes use {args.write_auth_env}",
+                file=sys.stderr,
+            )
         from .api_server import ApiServer
 
         try:
@@ -1007,6 +1139,7 @@ def main(argv: list[str] | None = None) -> None:
             base,
             server_name=args.name,
             auth=auth,
+            write_auth=write_auth,
             timeout=args.timeout,
             tools=tools,
             lazy=args.lazy,
@@ -1021,7 +1154,11 @@ def main(argv: list[str] | None = None) -> None:
         if getattr(args, "metrics", None):
             _start_metrics(args.metrics)
         if getattr(args, "reload", False):
-            _start_reload([args.spec], lambda: server.reload_tools(_rebuild_single_tools(args)))
+            def reload_single_ui() -> None:
+                server.reload_tools(_apply_tool_text(_rebuild_single_tools(args), config_data))
+
+            _start_reload([args.spec], reload_single_ui)
+        _apply_tool_text(server.tools, config_data)
         _wire_serve_extras(args, server)
         if getattr(args, "http_token_file", None):
             print("note: --http-token-file scopes apply to the MCP transport (mcpify serve --http); "
@@ -1032,14 +1169,19 @@ def main(argv: list[str] | None = None) -> None:
             _fail(f"--http {args.http}: {err}")
         token = args.http_token or os.environ.get("MCPIFY_HTTP_TOKEN") or None
         serve_ui(server, host, port, token, config_path,
-                 reload_cb=(lambda: server.reload_tools(_rebuild_single_tools(args)))
-                 if getattr(args, "reload", False) else None)
+                 reload_cb=reload_single_ui if getattr(args, "reload", False) else None)
 
     elif args.command == "try":
         from .http_client import set_logging
 
         set_logging(args.verbose, getattr(args, "log_file", None))
         auth = _resolve_auth(args, spec)
+        write_auth = _resolve_write_auth(args, auth)
+        if write_auth is not None:
+            print(
+                f"mcpify: auth split — reads use {args.auth_env}, writes use {args.write_auth_env}",
+                file=sys.stderr,
+            )
         from .api_server import ApiServer
 
         try:
@@ -1051,6 +1193,7 @@ def main(argv: list[str] | None = None) -> None:
             base,
             server_name=args.name,
             auth=auth,
+            write_auth=write_auth,
             timeout=args.timeout,
             tools=tools,
             lazy=args.lazy,
@@ -1210,6 +1353,7 @@ def main(argv: list[str] | None = None) -> None:
         variabled = [s for s in servers if "{" in s]
         security = ((spec.get("components") or {}).get("securitySchemes") or {})
         deprecated = sum(1 for _m, _p, op in iter_operations(spec) if op.get("deprecated"))
+        instruction_like, overlong_desc = _tool_text_issues(spec)
         def ok(s: str) -> str:
             return f"\033[32m{s}\033[0m" if USE_COLOR else s
 
@@ -1238,6 +1382,16 @@ def main(argv: list[str] | None = None) -> None:
             )
         if deprecated:
             warnings.append(f"{deprecated} deprecated operation(s) will be exposed")
+        if instruction_like:
+            warnings.append(
+                f"{instruction_like} operation(s) carry instruction-like text — tool descriptions "
+                "are model-facing prompts; review them (override per tool with [tool-text] in .mcpify.toml)"
+            )
+        if overlong_desc:
+            warnings.append(
+                f"{overlong_desc} operation(s) have descriptions over {_LONG_DESCRIPTION_CHARS} chars — "
+                "docs-grade prose burns the model's context in every tool list"
+            )
         if total > 50:
             warnings.append(f"{total} operations is a large tool surface")
         if args.json:
@@ -1247,6 +1401,8 @@ def main(argv: list[str] | None = None) -> None:
                 "missing_operation_id": missing_id,
                 "missing_summary": no_summary,
                 "warnings": warnings,
+                "instruction_like_text": instruction_like,
+                "overlong_descriptions": overlong_desc,
                 "exit_hints": ["pass --base-url"] if not servers else [],
             }, ensure_ascii=False))
             if warnings:
@@ -1277,6 +1433,10 @@ def main(argv: list[str] | None = None) -> None:
             ))
         if deprecated:
             print(warn(f"warning: {deprecated} deprecated operation(s) will be exposed (filter with --tag/--exclude if unintended)"))
+        if instruction_like:
+            print(warn(f"warning: {instruction_like} operation(s) carry instruction-like text — descriptions become model prompts (review or override with [tool-text])"))
+        if overlong_desc:
+            print(warn(f"warning: {overlong_desc} operation(s) have descriptions over {_LONG_DESCRIPTION_CHARS} chars — every tool list pays that context cost"))
         if total > 50:
             print(warn(f"warning: {total} operations is a large tool surface — consider --tag/--include/--exclude to protect the model's context"))
         if not missing_id and not no_summary:

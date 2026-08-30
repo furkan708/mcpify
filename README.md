@@ -11,7 +11,7 @@ English | [Türkçe](README.tr.md)
   <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
 </p>
 
-[![Tests](https://img.shields.io/badge/tests-389%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-410%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
 [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/ci.yml)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-4A90D9)](server.json)
@@ -26,7 +26,7 @@ English | [Türkçe](README.tr.md)
 
 **Turn any OpenAPI REST API into an [MCP](https://modelcontextprotocol.io) server** — so Claude Code, Cursor, and every other MCP client can call your API directly.
 
-mcpify is **focused, production-ready, and CLI-first**: one job (OpenAPI → MCP), zero runtime dependencies. Focused doesn't mean small — 389 tests across twenty-four suites, two transports (stdio + HTTP), dual MCP-spec compatibility, OAuth2, a policy layer, ETag-aware caching, safe retries, health probes, an audit trail, per-token tool RBAC and plugin hooks back that one job.
+mcpify is **focused, production-ready, and CLI-first**: one job (OpenAPI → MCP), zero runtime dependencies. Focused doesn't mean small — 410 tests across twenty-five suites, two transports (stdio + HTTP), dual MCP-spec compatibility, OAuth2, a policy layer, ETag-aware caching, safe retries, health probes, an audit trail, per-token tool RBAC, split read/write credentials and plugin hooks back that one job.
 
 
 Your company has a REST API. Your AI agent needs to call it. Until now that
@@ -69,7 +69,15 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   request/response (add headers, redact fields, ship events)
 - **Observability, opt-in only** — Prometheus `--metrics` (v1.10) plus `--otel` for one
   OpenTelemetry span per upstream call (optional extra, core stays dependency-free)
-- **`mcpify doctor`** — tells you if your spec is agent-friendly before you ship
+- **Least-privilege credentials** — `--write-auth-env` splits the identity: reads go out
+  on your read key, writes (POST/PUT/PATCH/DELETE) on a dedicated write key, so a read
+  call can never carry write power. `--read-only` filters the surface; the split makes
+  the *credential* match the policy
+- **Valid truncation** — oversized responses are cut along JSON structure (fewer items,
+  an explicit `"truncated": true` marker), never mid-document — the model never receives
+  half a JSON file
+- **`mcpify doctor`** — tells you if your spec is agent-friendly before you ship, including
+  instruction-like tool text (spec authors become prompt authors — doctor makes that visible)
 - **Multiple environments? Pick one.** Specs declaring
   prod/staging/dev `servers[]` get `--server 2` or `--server staging`
   (description or URL match) instead of a hand-typed `--base-url`
@@ -128,7 +136,7 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   `outputSchema`/`structuredContent`, remediation-grade errors that teach the
   next call, dry-run request previews, and a `--lazy` search-then-call mode
   that cut api.weather.gov's listing by **95.5%** (38,882 → 1,741 chars)
-- **389 tests across twenty-four suites** — including full MCP protocol runs
+- **410 tests across twenty-five suites** — including full MCP protocol runs
   over stdio *and* over HTTP against real local APIs and the **live
   api.weather.gov document** (69 tools, 16 enum'd parameters)
 
@@ -330,6 +338,8 @@ mcpify ui <spec> [same serve flags]         # local dashboard (tool explorer, he
 mcpify mock <spec> [--http 8000] [--delay-ms N]
 mcpify diff OLD NEW [--json] [--fail-on-breaking]   # spec upgrade report + CI gate
 mcpify config-schema                        # JSON Schema for .mcpify.toml (editor wiring)
+# credential split: --write-auth-env WRITE_KEY_ENV  (reads keep --auth-env)
+# tool-text overrides: [tool-text.TOOL] description = "..." in .mcpify.toml
 mcpify doctor <spec>
 
 # multi-API: define [apis.NAME] sections in .mcpify.toml, then run
@@ -343,6 +353,10 @@ mcpify doctor <spec>
 - JSON specs work out of the box; YAML specs need `pip install 'mcpify[yaml]'`
 - External `$ref` targets (files or URLs) are bundled automatically at load; circular
   cross-file refs are left in place rather than unwound (surface skips what it cannot resolve)
+- Oversized JSON responses truncate to valid JSON (first items + a truncation marker);
+  non-JSON bodies cut at a character boundary
+- `--write-auth-env` covers static credentials; OAuth2 token flows keep a single shared
+  identity for now (a second token flow is deliberate future work)
 - Request bodies are exposed as a single `body` object argument — predictable over clever
 - HTTP transport serves one JSON-RPC message per request (batching was removed from the MCP spec) and responds `application/json` — a stateless server has nothing to stream
 - Spec versions: OpenAPI 3.x and Swagger 2.x roots are accepted; 3.x is the happy path
@@ -401,6 +415,7 @@ suite runs on Python 3.10–3.12 across Linux and Windows; `ruff`, strict
 | Spec diff (`mcpify diff`) | 14 | added/removed/changed ops, breaking verdicts (required param added/became, body became required, op removal), deprecation & operationId warnings, migration guide, document-level diff, CLI exit contract 0/1/2, `--json` |
 | v1.11 serving: audit, cache, RBAC, plugins | 17 | JSONL audit trail with argument fingerprints + fail-safe on unwritable files, ETag 304 revalidation on stale entries, `mcpify_cache_invalidate` (scoped + full), `--cache-warm` pre-calls argument-free GETs only, token-file scoping end-to-end (401 / filtered lists / refused calls, deny wins, duplicate-token rejection), plugin hooks on real requests, `mcpify ui` dispatch (dead-command regression), `config-schema` matches the config module, OTel guard |
 | External `$ref` bundling | 6 | file + URL-base targets inlined, component-only target files, nested refs resolved relative to their own file, missing targets skipped, circular refs survive, same-document refs untouched |
+| Governance: split keys, tool text, valid truncation | 21 | read-key/write-key per method over a live upstream (shared-identity default unchanged), style/name inheritance + explicit override, OAuth2 refusal, config `write-auth-*` keys in serve/envs/apis, `[tool-text]` override through `list --json`, unknown-tool warnings, validator errors, schema/keys parity, doctor instruction-like + overlong-description counts, oversized array → valid JSON with marker, object key-keeping, non-JSON fallback, error-prefix survival |
 
 Policy on failures: every bug found in the wild becomes a pinned
 regression test before the fix ships — the suite only grows.
@@ -433,7 +448,9 @@ mcpify/
 ## Roadmap
 
 - [ ] SSE streaming responses for the HTTP transport (server-initiated messages)
-- [ ] Token-cost estimation (`list --cost`) and field projection (`--fields`) for giant responses
+- [ ] Token-cost estimation (`list --cost`), field projection (`--fields`), SSE streaming
+- [ ] Second OAuth2 token flow so the credential split covers OAuth2 too
+- [x] ~~Read/write credential split, tool-text overrides, doctor prompt-hygiene audit, structure-aware truncation~~ — shipped in v1.12.0
 - [x] ~~Spec diff + audit log + per-token RBAC + plugin hooks + config JSON Schema + external `$ref` bundling + OTel extra~~ — shipped in v1.11.0
 - [x] ~~Web dashboard, Prometheus metrics, mock server, hot reload~~ — shipped in v1.10.0
 - [x] ~~Multi-API aggregation: one `serve` process fronting several OpenAPI documents~~ — shipped in v1.9.0

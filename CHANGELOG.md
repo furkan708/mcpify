@@ -6,6 +6,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-08-30
+
+### Added — the least-privilege release (answers to a reviewer's three sharp points)
+- **Read/write credential split (`--write-auth-env`):** reads go out on the
+  primary `--auth-env` credential, non-GET calls carry a dedicated write
+  credential — the blast radius of a read call is the read key's, not the
+  write key's. Style/name are inherited from `--auth-style`/`--auth-name`
+  (overridable with `--write-auth-style`/`--write-auth-name`); works per API
+  via `write-auth-env` in `[apis.NAME]`/`[serve]`. Static credentials only —
+  combining with OAuth2 is refused with a clear message until a second token
+  flow is designed. This turns `--read-only` from an MCP-layer suggestion
+  into a credential-level property.
+- **Structure-aware truncation:** oversized JSON responses are no longer cut
+  mid-document (which handed models a fragment that looked complete but
+  could not parse). Arrays keep their first items in a wrapper object;
+  objects keep the top-level keys that fit; both carry explicit
+  `truncated: true` / `mcpify_omitted_keys` markers and the serialized
+  result is measured honestly against the 40k budget. Non-JSON bodies keep
+  the character cut.
+- **Doctor prompt-hygiene audit:** flags operations whose summary/description
+  carries instruction-like text ("ignore previous instructions", "you must",
+  "system prompt", ...) and descriptions over 1200 chars — spec authors
+  become prompt authors, so tool text deserves a lint pass.
+- **`[tool-text]` overrides in `.mcpify.toml`:** the operator (not the spec
+  author) gets the last word on model-facing descriptions, per final tool
+  name, without touching the spec. Unknown tool names warn; the validator
+  rejects malformed sections; `mcpify config-schema` covers the section.
+- **`mcpify list` now reads the config file** (like serve) — previews honor
+  `[serve]` settings and show overrides; the `spec` positional is optional
+  when the config provides it.
+- 21 new tests (410 total, twenty-five suites).
+
 ## [1.11.0] - 2026-08-30
 
 ### Added — the operator & governance release (core stays zero-dependency)

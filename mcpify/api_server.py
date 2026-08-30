@@ -83,11 +83,16 @@ class ApiServer:
         retry_delay: float = 1.0,
         response_format: str = "auto",
         wait_on_429: float = 0.0,
+        write_auth: AuthProvider | None = None,
     ) -> None:
         self.spec = spec
         self.base_url = base_url
         self.server_name = server_name
         self.auth: AuthProvider | None = auth
+        # dedicated non-GET credential (--write-auth-env): reads keep the
+        # primary identity, writes carry their own — structural least
+        # privilege instead of one shared API identity
+        self.write_auth: AuthProvider | None = write_auth
         self.timeout = timeout
         self.lazy = lazy
         # tools may be pre-filtered by the CLI policy layer; building them
@@ -265,16 +270,21 @@ class ApiServer:
             )
         return self._execute_real(tool, arguments)
 
-    def _context_for(self, _tool: dict[str, Any]) -> dict[str, Any]:
+    def _context_for(self, tool: dict[str, Any]) -> dict[str, Any]:
         """Execution context for one tool: base URL, auth and tuning.
 
         A plain ApiServer has exactly one context (its own); the
         aggregator overrides this to route each tool to the API that
         owns it. Every execution path (_execute_real, preview) goes
-        through here, so per-API auth/cache/retry can never be bypassed."""
+        through here, so per-API auth/cache/retry can never be bypassed.
+        With a write credential configured (--write-auth-env), non-GET
+        calls carry THAT identity instead of the primary one."""
+        auth = self.auth
+        if self.write_auth is not None and tool["_meta"]["method"] != "GET":
+            auth = self.write_auth
         return {
             "base": self.base_url,
-            "auth": self.auth,
+            "auth": auth,
             "timeout": self.timeout,
             "cache": self.cache,
             "retry": self.retry,
