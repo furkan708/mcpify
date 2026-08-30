@@ -88,7 +88,7 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
   belongs above this layer (rationale in USAGE.md)
 
 ## 10. Test & validation
-- ✅ **327 passing tests across twenty suites** (328 collected; one
+- ✅ **352 passing tests across twenty-one suites** (353 collected; one
   live-integration test auto-skips offline) — full matrix in the README
 - ✅ Quality gates on every push: ruff, mypy `strict`, CodeQL,
   Python 3.10–3.12 × Linux + Windows
@@ -121,4 +121,4 @@ Legend: ✅ verified · 🔧 fixed during audit · ⛔ deliberate limitation
   wheel `twine check` PASSED; 3.10 fallback TOML parser parity-tested
 
 ---
-*Audited 2026-08-30 against v1.9.0. Re-run on every release.*
+*Audited 2026-08-30 against v1.10.0. Re-run on every release.*

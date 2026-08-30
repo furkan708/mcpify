@@ -6,6 +6,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-08-30
+
+### Added — the operations release (all zero-dependency)
+- **`mcpify ui` — the local operations dashboard:** one inline HTML
+  page served by stdlib `http.server` — a live tool explorer (method,
+  path, annotations, full JSON schema), masked dry-run request
+  previews, per-API health probes with latency sparklines, a masked
+  log tail, and a form that writes a **validated** `.mcpify.toml`
+  (unknown keys are rejected with 400). Binds 127.0.0.1 by default;
+  `--http-token` (or `?token=` for browsers) protects non-loopback
+  use. Real execution stays in `mcpify try` — the dashboard is a
+  dry-run cockpit.
+- **Prometheus metrics (`--metrics [HOST:]PORT`):** `/metrics` in
+  Prometheus text format — `mcpify_tool_calls_total{tool,api,outcome}`,
+  `mcpify_tool_latency_seconds` histogram, `mcpify_cache_requests_total`
+  hit/miss, `mcpify_api_health` per-API gauges, uptime/tool-count
+  gauges. Recording is opt-in and a single boolean check when off.
+  Example per-API alerting rules in USAGE.md.
+- **`mcpify mock`:** a fake API generated from the spec — schema-shaped
+  JSON (examples > example > default > const/enum > format > type
+  heuristics, `$ref` resolved, required-only objects), exact + `{param}`
+  template routing, 404 with the known-route list, optional
+  `--delay-ms` for latency testing.
+- **`--reload` (serve/ui):** watches the spec file(s) in a daemon
+  thread and hot-swaps the tool surface in place — stdio loops and
+  HTTP handler closures keep working. A broken half-saved spec keeps
+  the previous surface and says so on stderr; URLs are skipped.
+- 25 new tests (352 total, twenty-one suites) covering all four
+  features end-to-end against real local servers.
+
 ## [1.9.1] - 2026-08-30
 
 ### Fixed — found by the strict-audit round

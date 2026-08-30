@@ -85,7 +85,7 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 
 - **Odaklı ve üretim hazırı:** Tek iş (OpenAPI → MCP), tek arayüz (stdio
   üzerinde tek komut), sıfır runtime bağımlılığı. Odaklılık küçüklük demek değil:
-  20 pakette 327 test, iki transport (stdio + HTTP), çift MCP-spec uyumu, OAuth2,
+  21 pakette 352 test, iki transport (stdio + HTTP), çift MCP-spec uyumu, OAuth2,
   çok-API aggregation, politika katmanı, cache, güvenli retry ve health sorgusu
   bu tek işi destekliyor.
 - **Token bütçesi:** Her araç tanımı modelin bağlam penceresini (context) tüketir.
@@ -107,7 +107,7 @@ Tam liste: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
 ## Test ve kalite
 
-**327 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
+**352 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
 yükleyen canlı entegrasyon testidir (çevrimdışında otomatik atlanır).
 Tüm paketler Python 3.10–3.12 üzerinde Linux ve Windows'ta koşar; her
 push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
@@ -130,6 +130,7 @@ push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
 | OAuth2 client-credentials | 18 | saatle token çekme/cache/yenileme, Basic vs body istemci kimliği, public client, her hata türü, 401 öz-düzeltme |
 | `try` REPL | 26 | borulu stdin oturumları: numara/isimle seçim, tipli girdi, hatalı girdide yeniden sorma, `:raw`/`:info`, temiz EOF/Ctrl+C çıkışı |
 | Çok-API aggregation | 26 | `[apis.*]` birleştirme: iki taraflı çakışma öneki ve `_2` eki, API başına yönlendirme/kimlik/cache izolasyonu, eşzamanlı toplu sağlık raporu (ölü API ismi hint'te), API etiketiyle lazy arama, önizleme yönlendirmesi, status çıkış kodları, `--env` devri |
+| Operasyon: dashboard, metrics, mock, reload | 25 | `/metrics` text formatı (sayaç/histogram/cache hit-miss/health gauge), token'lı UI rotaları, maskeli önizleme API'si, config-form yazıcısı (+bilinmeyen anahtar 400), şema-şeklinde mock yanıtları ve şablon yönlendirme, hot-reload (bozuk spec'te eski yüzey ayakta) |
 | `output-server` | 11 | gömülü spec bütünlüğü, koruma rayları, sır uyarıları ve gerçek subprocess E2E el sıkışması |
 | CLI bağlantı yapıştırıcısı | 10 | `--http` kablolaması, `MCPIFY_HTTP_TOKEN` yedeği, OAuth2 bayrak kuralları, config anahtarları, sihirbaz 5. seçenek, `try` duman testi |
 

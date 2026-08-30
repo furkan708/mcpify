@@ -17,6 +17,7 @@ deployment, troubleshooting, and frequently asked questions.
 10. [Trying tools without an agent (`mcpify try`)](#10-trying-tools-without-an-agent-mcpify-try)
 11. [Sharing a preconfigured server (`mcpify output-server`)](#11-sharing-a-preconfigured-server-mcpify-output-server)
 12. [Multi-API aggregation: one server, several APIs](#12-multi-api-aggregation-one-server-several-apis)
+13. [Dashboard, metrics, mock & hot reload](#13-dashboard-metrics-mock--hot-reload)
 
 ---
 
@@ -668,6 +669,81 @@ Rules that make this safe:
 - **Either/or:** pass a positional spec *or* `[apis.*]` sections —
   mcpify rejects the combination with a clear error instead of
   guessing which wins.
+
+## 13. Dashboard, metrics, mock & hot reload
+
+### `mcpify ui` — the local dashboard
+
+```bash
+mcpify ui openapi.json                    # http://127.0.0.1:8787
+mcpify ui --config .mcpify.toml           # multi-API surface
+mcpify ui openapi.json --http-token S3cret  # non-loopback or token'd
+```
+
+One stdlib page, zero external resources: a tool explorer with full
+JSON schemas, **masked dry-run previews** (the dashboard never executes
+calls — `mcpify try` is for real ones), on-demand health probes with
+latency history, a masked log tail, and a config form that writes a
+validated `.mcpify.toml` (unknown keys → HTTP 400, never a silent dead
+config). Binds 127.0.0.1; a warning is printed if you bind wider
+without a token.
+
+### Prometheus metrics
+
+```bash
+mcpify serve openapi.json --metrics 9090              # stdio + /metrics sidecar
+mcpify serve --http 8080 --metrics 127.0.0.1:9090     # HTTP + metrics together
+```
+
+Scrape `http://127.0.0.1:9090/metrics`:
+
+```
+mcpify_tool_calls_total{api="mcpify",outcome="ok",tool="list_pets"} 3
+mcpify_tool_latency_seconds_bucket{api="mcpify",tool="list_pets",le="0.05"} 2
+mcpify_cache_requests_total{result="hit"} 11
+mcpify_api_health{api="catalog"} 1
+```
+
+Recording is opt-in (a boolean check when off). Example per-API alert
+rule — error rate above 10% for 5 minutes:
+
+```yaml
+- alert: McpifyApiErrorRate
+  expr: |
+    sum by (api) (rate(mcpify_tool_calls_total{outcome="error"}[5m]))
+      / sum by (api) (rate(mcpify_tool_calls_total[5m])) > 0.10
+  for: 5m
+```
+
+OpenTelemetry export stays out of core on purpose (SDK = heavy
+dependency); it may arrive as an optional extra.
+
+### `mcpify mock` — a fake API from the spec
+
+```bash
+mcpify mock ./openapi.json --http 8000 --delay-ms 120
+```
+
+Every documented operation answers with a schema-shaped JSON example
+(examples > example > default > const/enum > format > type; `$ref`
+resolved; objects honor `required`). Path templates match
+`/users/{id}` style segments; unknown paths get a 404 listing the
+known routes. Perfect with the dashboard: point `mcpify ui`'d serve at
+the mock for a full offline playground.
+
+### `--reload` — hot-swapping the tool surface
+
+```bash
+mcpify serve openapi.json --reload        # stdio
+mcpify serve --config .mcpify.toml --reload --http 8080
+mcpify ui openapi.json --reload
+```
+
+A daemon thread watches the local spec files (URLs are skipped with a
+note) and rebuilds the tool list in place on change — the stdio loop
+and HTTP handler closures keep working. If a save leaves the spec
+broken, the previous surface stays live and stderr says so. Config
+file changes still need a restart.
 
 ## Health & status
 

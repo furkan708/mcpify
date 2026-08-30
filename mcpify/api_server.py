@@ -19,10 +19,12 @@ from __future__ import annotations
 import json
 import re
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from . import __version__ as SERVER_VERSION  # never hardcode: avoids version drift
+from . import metrics
 from .convert import convert as convert_format
 from .http_client import OAuth2ClientCredentials, ResponseCache, execute, format_result, remediation
 from .tools import META_TOOL_NAMES, AuthConfig, RequestError, build_request, spec_to_tools
@@ -102,6 +104,8 @@ class ApiServer:
         self.retry_delay = retry_delay
         self.wait_on_429 = wait_on_429
         self.response_format = response_format
+        # dashboard config-form defaults ([serve] values when run via CLI)
+        self.ui_config_defaults: dict[str, Any] = {}
         self.meta_tools: dict[str, dict[str, Any]] = {t["name"]: t for t in self._build_meta_tools()}
         if lazy:
             listed = [SEARCH_TOOL, SCHEMA_TOOL, CALL_TOOL]
@@ -206,6 +210,22 @@ class ApiServer:
         lookup = {**self.by_name, **self.meta_tools}
         return [_public(lookup[name]) for name in self.listed_names]
 
+    # -- tooling bridges (dashboard, reload) --------------------------------
+    def preview_request(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Public dry-run for tooling: the masked request a call would send."""
+        return self._preview({"name": name, "arguments": arguments})
+
+    def run_health_check(self) -> dict[str, Any]:
+        """Public health probe for tooling; also refreshes metrics gauges."""
+        return self._health()
+
+    def reload_tools(self, tools: list[dict[str, Any]]) -> None:
+        """Swap the tool surface in place (hot reload); keeps identity so
+        stdio loops and HTTP handler closures keep working."""
+        self.tools = tools
+        self.by_name = {tool["name"]: tool for tool in self.tools}
+        self.known_paths = sorted({tool["_meta"]["path"] for tool in self.tools})
+
     # -- tool execution ----------------------------------------------------
     def run_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Execute any listed tool and return a full MCP tool-result payload."""
@@ -271,8 +291,17 @@ class ApiServer:
             )
         return result
 
+    def _metric_labels(self, tool: dict[str, Any]) -> dict[str, str]:
+        return {"tool": tool["name"], "api": str(tool.get("api", self.server_name))}
+
     def _execute_real(self, tool: dict[str, Any], arguments: dict[str, Any]) -> dict[str, Any]:
+        started = time.monotonic()
         result = self._send(tool, arguments, self._context_for(tool))
+        metrics.observe(
+            "mcpify_tool_latency_seconds", self._metric_labels(tool), time.monotonic() - started
+        )
+        outcome = "error" if (result["status"] == 0 or result["status"] >= 400) else "ok"
+        metrics.inc("mcpify_tool_calls_total", {**self._metric_labels(tool), "outcome": outcome})
         return self._payload_for(tool, result)
 
     def _payload_for(self, tool: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
@@ -334,6 +363,7 @@ class ApiServer:
         )
         latency = _time.monotonic() - started
         reachable = probe["status"] != 0
+        metrics.health_report(self.server_name, reachable)
         auth = self.auth.describe() if self.auth is not None else None
         report = {
             "api_reachable": reachable,

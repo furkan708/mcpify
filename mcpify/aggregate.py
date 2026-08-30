@@ -23,6 +23,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+from . import metrics
 from .api_server import ApiServer
 from .http_client import execute
 from .tools import META_TOOL_NAMES, slugify
@@ -95,6 +96,13 @@ class AggregatedServer(ApiServer):
             response_format=response_format,
         )
 
+    def reload_entries(self, entries: list[dict[str, Any]]) -> None:
+        """Swap entries + re-merge the surface in place (hot reload)."""
+        self.entries = list(entries)
+        merged, owners = merge_entries(entries)
+        self._owners = owners
+        self.reload_tools(merged)
+
     def _context_for(self, tool: dict[str, Any]) -> dict[str, Any]:
         entry = self.entries[self._owners[tool["name"]]]
         return {
@@ -136,6 +144,8 @@ class AggregatedServer(ApiServer):
         with ThreadPoolExecutor(max_workers=min(8, len(self.entries))) as pool:
             apis = list(pool.map(probe, self.entries))
         dead = [item["api"] for item in apis if not item["api_reachable"]]
+        for item in apis:
+            metrics.health_report(str(item["api"]), bool(item["api_reachable"]))
         report: dict[str, Any] = {
             "apis": apis,
             "api_count": len(apis),

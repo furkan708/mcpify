@@ -24,8 +24,10 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
+from . import metrics
 from .tools import RequestError
 
+_LOG_SINKS: list[Callable[[str], None]] = []
 _DEBUG = os.environ.get("MCPIFY_DEBUG") == "1"
 _VERBOSE = False
 _LOG_FILE = None
@@ -40,14 +42,24 @@ def set_logging(verbose: bool = False, log_file: str | None = None) -> None:
     _LOG_FILE = log_file
 
 
+def register_log_sink(sink: Callable[[str], None]) -> None:
+    """Receive every masked log line (dashboard tail). Never raises out."""
+    _LOG_SINKS.append(sink)
+
+
 def _log(level: str, message: str) -> None:
     """Optional stderr logging (MCPIFY_DEBUG=1 or --verbose). NEVER
     touches stdout: the JSON-RPC stream must stay clean. URLs are logged
     without query strings so query-style auth credentials never hit the
-    log or the file."""
-    if not (_DEBUG or _VERBOSE):
+    log or the file. Sinks (dashboard) see lines regardless of verbose."""
+    if not (_DEBUG or _VERBOSE or _LOG_FILE or _LOG_SINKS):
         return
     line = f"{level} mcpify: {message}"
+    for sink in _LOG_SINKS:
+        with contextlib.suppress(Exception):  # sink hatasi asla servise sirayet etmez
+            sink(line)
+    if not (_DEBUG or _VERBOSE or _LOG_FILE):
+        return  # sink-only modu: dashboard gorur, stderr temiz kalir
     with _LOG_LOCK:
         print(line, file=sys.stderr, flush=True)
         if _LOG_FILE:
@@ -164,6 +176,7 @@ def _execute_once(request: dict[str, Any], timeout: float, cache: ResponseCache 
     cache_key = request.get("method", "GET").upper() + " " + request["url"]
     if cache is not None and request.get("method", "GET").upper() == "GET":
         hit = cache.get(cache_key)
+        metrics.inc("mcpify_cache_requests_total", {"result": "hit" if hit is not None else "miss"})
         if hit is not None:
             _log("INFO", f"cache hit {request['url'].split('?', 1)[0]}")
             return hit

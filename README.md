@@ -11,7 +11,7 @@ English | [Türkçe](README.tr.md)
   <img src="docs/demo.gif" alt="mcpify in action — listing and serving OpenAPI endpoints as MCP tools" width="720">
 </p>
 
-[![Tests](https://img.shields.io/badge/tests-327%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-352%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
 [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/ci.yml)
 [![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-4A90D9)](server.json)
@@ -76,6 +76,22 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   filters, automatic renames when two APIs ship the same tool name, an
   aggregated health report, and `mcpify status` that probes every API in
   parallel. The feature hosted gateways bill for, in a config file
+- **A local operations dashboard** — `mcpify ui` opens a zero-dependency
+  web UI (one inline HTML page, no CDN, token-able): live tool explorer
+  with schema views and masked request previews, per-API health probes
+  with latency sparklines, a masked log tail, and a form that writes a
+  validated `.mcpify.toml`. Real execution stays in `mcpify try`; the
+  dashboard is a dry-run cockpit
+- **Prometheus metrics, opt-in** — `serve --metrics [HOST:]PORT` exposes
+  `/metrics`: per-tool call counters with outcome labels, latency
+  histograms, cache hit/miss, per-API health gauges. Zero recording
+  overhead when the flag is off; alert rules belong to your Prometheus
+- **`mcpify mock`** — serve a fake API generated from the spec
+  (schema-shaped JSON: examples > default > enum > format > type), so
+  agents and CI have something to talk to before the backend exists
+- **`--reload`** — watch the spec file(s); the tool surface hot-swaps on
+  change. A broken half-saved spec keeps the previous surface — the
+  server never dies from a bad edit
 - **Host it yourself for free** — `deploy/docker-compose.yml` (with
   automatic-HTTPS Caddy) and a hardened systemd unit turn a $5 VPS into
   what hosted-MCP plans bill $9–$229/month for: [Self-hosting guide](docs/SELF-HOSTING.md)
@@ -97,7 +113,7 @@ That's it — every endpoint just became a tool your AI agent can discover, unde
   `outputSchema`/`structuredContent`, remediation-grade errors that teach the
   next call, dry-run request previews, and a `--lazy` search-then-call mode
   that cut api.weather.gov's listing by **95.5%** (38,882 → 1,741 chars)
-- **327 tests across twenty suites** — including full MCP protocol runs
+- **352 tests across twenty-one suites** — including full MCP protocol runs
   over stdio *and* over HTTP against real local APIs and the **live
   api.weather.gov document** (69 tools, 16 enum'd parameters)
 
@@ -295,10 +311,13 @@ mcpify serve <spec> [--base-url URL] [--server INDEX|NAME] [--name N] [--auth-en
                     [--http [HOST:]PORT] [--http-token TOKEN] [--wait-on-429 SEC]
 mcpify try <spec> [same serve flags]        # interactive REPL, no agent needed
 mcpify output-server <spec> -o FILE [-- <any serve flags>]
+mcpify ui <spec> [same serve flags]         # local dashboard (dry-run cockpit)
+mcpify mock <spec> [--http 8000] [--delay-ms N]
 mcpify doctor <spec>
 
 # multi-API: define [apis.NAME] sections in .mcpify.toml, then run
-#   mcpify serve|try|status   (no positional spec) — one process, every API
+#   mcpify serve|try|status|ui (no positional spec) — one process, every API
+# ops add-ons for serve/ui: --metrics [HOST:]PORT   --reload
 ```
 
 ### Notes & limitations
@@ -331,7 +350,7 @@ Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHEC
 
 ## Tests
 
-**327 passing**, plus one live-integration test that loads the real
+**352 passing**, plus one live-integration test that loads the real
 api.weather.gov document (auto-skipped when offline). Every suite runs on
 Python 3.10–3.12 across Linux and Windows; `ruff`, strict `mypy` and
 CodeQL gate every push.
@@ -357,6 +376,7 @@ CodeQL gate every push.
 | Auth auto-detection & Basic | 22 | securitySchemes → style/name resolution (OpenAPI + Swagger 2.0), requirement-order precedence, operation-level security, exact hint text, HTTP Basic header encoding, CLI/try/doctor wiring, explicit-style override |
 | Rate-limit courtesy (`--wait-on-429`) | 9 | Retry-After honored once within cap, cap exceeded returns 429 untouched, missing header falls back to retry delay, HTTP-date form never waits, POST never auto-waited, CLI wiring |
 | Multi-API aggregation | 26 | `[apis.*]` merge with two-sided collision prefixes and `_2` suffixes, per-API routing/auth/cache isolation, concurrent aggregated health (dead-API named in hint), lazy search across APIs incl. label match, preview routing, status exit codes, `--env` inheritance, both-rejected flag combos |
+| Ops: dashboard, metrics, mock, reload | 25 | `/metrics` text format (counters/histograms/cache hit-miss/health gauges), token'd UI routes, masked preview API, config-form writer (+unknown-key 400), schema-shaped mock responses with template routing, hot-reload rebuild incl. broken-spec survival |
 | CLI connectivity glue | 10 | `--http` wiring, `MCPIFY_HTTP_TOKEN` fallback, OAuth2 flag rules, config-file keys, wizard option 5, `try` smoke test |
 
 Policy on failures: every bug found in the wild becomes a pinned
@@ -390,6 +410,8 @@ mcpify/
 ## Roadmap
 
 - [ ] SSE streaming responses for the HTTP transport (server-initiated messages)
+- [ ] External `$ref` auto-bundling; OpenTelemetry export as an optional extra
+- [x] ~~Web dashboard, Prometheus metrics, mock server, hot reload~~ — shipped in v1.10.0
 - [x] ~~Multi-API aggregation: one `serve` process fronting several OpenAPI documents~~ — shipped in v1.9.0
 - [x] ~~HTTP transport~~, ~~OAuth2 client-credentials~~, ~~`mcpify try` REPL~~, ~~`--output-server`~~ — shipped in v1.6.0
 

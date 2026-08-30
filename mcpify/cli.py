@@ -7,8 +7,9 @@ import json
 import os
 import re
 import sys
+import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -206,6 +207,92 @@ def _add_serve_options(p: argparse.ArgumentParser, with_http: bool) -> None:
                        "bare PORT binds 127.0.0.1")
         p.add_argument("--http-token", help="require this bearer token on HTTP POSTs "
                        "(falls back to MCPIFY_HTTP_TOKEN)")
+        p.add_argument("--metrics", metavar="[HOST:]PORT", default=None,
+                       help="expose Prometheus metrics at http://HOST:PORT/metrics "
+                       "(bare PORT binds 127.0.0.1; opt-in, zero overhead when off)")
+        p.add_argument("--reload", action="store_true",
+                       help="watch the spec file(s) and hot-reload the tool surface on change "
+                       "(local paths only; broken specs keep the previous surface)")
+
+
+def _spec_mtime(path: str) -> int | None:
+    """Last-modified stamp for local files; URLs and missing files are None."""
+    if path.startswith(("http://", "https://")):
+        return None
+    try:
+        return os.stat(path).st_mtime_ns
+    except OSError:
+        return None
+
+
+def _reload_once(
+    paths: list[str],
+    last: dict[str, int | None],
+    apply_reload: Callable[[], None],
+) -> dict[str, int | None]:
+    """Rebuild the surface when any watched spec changed.
+
+    A broken (half-saved) spec keeps the previous surface — the server
+    never dies from a bad edit. Returns the stamp map for the next call.
+    """
+    current = {path: _spec_mtime(path) for path in paths}
+    if current != last:
+        try:
+            apply_reload()
+        except Exception as err:  # watch dongusu yasamaya devam eder
+            print(f"mcpify reload: kept the previous surface ({err})", file=sys.stderr, flush=True)
+        else:
+            print("mcpify reload: tool surface refreshed", file=sys.stderr, flush=True)
+    return current
+
+
+def _start_reload(paths: list[str], apply_reload: Callable[[], None], poll: float = 1.0) -> None:
+    """Watch local spec paths in a daemon thread (--reload)."""
+    watched = [path for path in paths if _spec_mtime(path) is not None]
+    skipped = [path for path in paths if _spec_mtime(path) is None]
+    if not watched:
+        print(
+            "note: --reload found no local spec files to watch"
+            + (f" (skipped URLs: {', '.join(skipped)})" if skipped else ""),
+            file=sys.stderr,
+        )
+        return
+
+    def watch() -> None:
+        last = {path: _spec_mtime(path) for path in watched}
+        while True:
+            time.sleep(poll)
+            last = _reload_once(watched, last, apply_reload)
+
+    threading.Thread(target=watch, daemon=True).start()
+    print(f"mcpify reload: watching {len(watched)} spec file(s)", file=sys.stderr, flush=True)
+
+
+def _start_metrics(bind: str) -> None:
+    """Expose /metrics on its own port (--metrics [HOST:]PORT)."""
+    from . import metrics as metrics_mod
+    from .http_transport import parse_http_bind
+
+    try:
+        host, port = parse_http_bind(bind)
+    except ValueError as err:
+        _fail(f"--metrics {bind}: {err}")
+    metrics_mod.enable()
+    httpd, _thread = metrics_mod.start_metrics_server(host, port)
+    shown = "127.0.0.1" if str(httpd.server_address[0]) == "0.0.0.0" else str(httpd.server_address[0])  # noqa: S104 -- display
+    print(f"mcpify: metrics at http://{shown}:{httpd.server_address[1]}/metrics", file=sys.stderr, flush=True)
+
+
+def _rebuild_single_tools(args: argparse.Namespace) -> list[dict[str, Any]]:
+    """Fresh tool list for one spec (--reload in single-spec serve)."""
+    from .spec import load_spec
+
+    fresh = load_spec(args.spec)
+    all_tools = spec_to_tools(fresh, strict=getattr(args, "strict", False))
+    filtered = filter_tools(all_tools, args)
+    if not filtered:
+        raise ValueError("no operations matched after the change")
+    return filtered
 
 
 def _build_entries(args: argparse.Namespace, data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -270,6 +357,7 @@ def _build_entries(args: argparse.Namespace, data: dict[str, Any]) -> list[dict[
         entries.append({
             "label": label,
             "spec": spec,
+            "spec_path": ns.spec,
             "base": base,
             "auth": auth,
             "timeout": float(ns.timeout),
@@ -452,6 +540,16 @@ def main(argv: list[str] | None = None) -> None:
     p_status.add_argument("--timeout", type=float, default=10.0, help="probe timeout seconds")
     p_status.add_argument("--json", action="store_true", help="machine-readable output")
 
+    p_ui = sub.add_parser("ui", help="operations dashboard: tool explorer, masked logs, health, config editor")
+    _add_serve_options(p_ui, with_http=True)
+
+    p_mock = sub.add_parser("mock", help="serve a fake API generated from the spec (schema-shaped responses)")
+    p_mock.add_argument("spec", help="path or URL of an OpenAPI document")
+    p_mock.add_argument("--http", metavar="[HOST:]PORT", default="8000",
+                        help="bind address (default: 127.0.0.1:8000; '*' or 0.0.0.0 exposes)")
+    p_mock.add_argument("--delay-ms", type=int, default=0, help="artificial latency per response (default: 0)")
+    p_mock.add_argument("--timeout", type=float, default=15.0, help="spec fetch timeout seconds (default: 15)")
+
     p_doctor = sub.add_parser("doctor", help="inspect a spec and report problems")
     p_doctor.add_argument("spec", help="path or URL of an OpenAPI document")
     p_doctor.add_argument("--json", action="store_true", help="machine-readable output")
@@ -461,7 +559,7 @@ def main(argv: list[str] | None = None) -> None:
 
     config_path = None
     config_data: dict[str, Any] = {}
-    if args.command in ("serve", "status", "try"):
+    if args.command in ("serve", "status", "try", "ui"):
         try:
             config_path, config_data = load_config(getattr(args, "config", None))
             if config_path is not None:
@@ -477,10 +575,10 @@ def main(argv: list[str] | None = None) -> None:
             _fail(str(err))
 
     entries: list[dict[str, Any]] | None = None
-    if args.command in ("serve", "try") and api_sections(config_data):
+    if args.command in ("serve", "try", "ui") and api_sections(config_data):
         entries = _build_entries(args, config_data)
 
-    if args.command in ("list", "serve", "try") and entries is None:
+    if args.command in ("list", "serve", "try", "ui") and entries is None:
         if getattr(args, "spec", None) is None:
             _fail("a spec path or URL is required (or set `spec` in the config)")
         spec_arg = args.spec
@@ -559,6 +657,14 @@ def main(argv: list[str] | None = None) -> None:
             enable_preview=args.enable_preview,
             response_format=args.format,
         )
+        agg_server.ui_config_defaults = dict(config_data.get("serve") or {})
+        if getattr(args, "metrics", None):
+            _start_metrics(args.metrics)
+        if getattr(args, "reload", False):
+            _start_reload(
+                [str(entry.get("spec_path", "")) for entry in entries],
+                lambda: agg_server.reload_entries(_build_entries(args, config_data)),
+            )
         if getattr(args, "http", None):
             from .http_transport import parse_http_bind, serve_http
 
@@ -611,6 +717,11 @@ def main(argv: list[str] | None = None) -> None:
             response_format=args.format,
             wait_on_429=getattr(args, "wait_on_429", 0.0),
         )
+        server.ui_config_defaults = dict(config_data.get("serve") or {})
+        if getattr(args, "metrics", None):
+            _start_metrics(args.metrics)
+        if getattr(args, "reload", False):
+            _start_reload([args.spec], lambda: server.reload_tools(_rebuild_single_tools(args)))
         if getattr(args, "http", None):
             from .http_transport import parse_http_bind, serve_http
 
