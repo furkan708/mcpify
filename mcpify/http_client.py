@@ -308,6 +308,22 @@ def _execute_once(request: dict[str, Any], timeout: float, cache: ResponseCache 
             "json": None,
             "headers": {},
         }
+    except TimeoutError:  # read-phase timeout escapes urllib unwrapped — without this it kills the server
+        _log("ERROR", f"{request['method']} {url_guvenli} -> timeout after {timeout}s")
+        return {
+            "status": 0,
+            "body": f"timeout: no response within {timeout}s (client-side --timeout)",
+            "json": None,
+            "headers": {},
+        }
+    except OSError as err:  # reset / remote disconnected mid-response — URLError covers connect-phase only
+        _log("ERROR", f"{request['method']} {url_guvenli} -> connection failed: {err}")
+        return {
+            "status": 0,
+            "body": f"connection failed: {err}",
+            "json": None,
+            "headers": {},
+        }
     sure = time.monotonic() - basla
     if status >= 500:
         _log("ERROR", f"{request['method']} {url_guvenli} -> {status} ({sure:.2f}s)")
@@ -349,7 +365,13 @@ def remediation(result: dict[str, Any], tool: dict[str, Any] | None = None, know
     status = result["status"]
     tips: list[str] = []
     if status == 0:
-        tips.append("Connection failed — check the base URL and network, then re-run.")
+        if str(result.get("body", "")).startswith("timeout:"):
+            tips.append(
+                "Upstream was slow, not unreachable — re-run the call, or raise the "
+                "client-side --timeout if this endpoint normally takes longer."
+            )
+        else:
+            tips.append("Connection failed — check the base URL and network, then re-run.")
     parsed = result.get("json")
     if isinstance(parsed, dict):
         detail = parsed.get("detail")

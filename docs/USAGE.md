@@ -304,6 +304,8 @@ Notes for production:
 | Agent calls never arrive | Check the client config command resolves (`which mcpify`). |
 | `HTTP 401` from calls | Env var set but wrong/rotated; or the API expects a different auth style. |
 | `HTTP 404` on every call | Base URL path duplication — spec paths usually already include a version segment. |
+| `timeout: no response within Ns` | The upstream accepted the connection but was slower than the client-side `--timeout` — re-run, or raise `--timeout`. This is a tool error, not a dead server: the session stays alive. |
+| `connection failed` mid-session | Upstream reset the connection (deploy? restart?). Retry; if it persists, check the base URL and network. |
 
 ## 8. FAQ
 

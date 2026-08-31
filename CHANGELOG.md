@@ -6,6 +6,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-08-31
+
+### Fixed — the resilience release: upstream failures kill sessions elsewhere, not here
+- **Read timeouts no longer crash the server.** An upstream that accepted the
+  connection but never answered (the classic slow endpoint) raised a bare
+  `TimeoutError` that escaped the request loop and killed the whole stdio
+  server — the client saw "connection closed" and every later call failed.
+  Timeouts now return a tool error (`isError`) naming the lever: *"timeout:
+  no response within Ns (client-side --timeout)"* plus remediation ("raise
+  --timeout if this endpoint normally takes longer"). Found by replaying
+  fastmcp#1753 against mcpify; the session now survives what used to kill it.
+- **Same for mid-response disconnects** (connection reset / remote closed):
+  read-phase `OSError`s were outside `URLError`'s connect-phase net and also
+  crashed the loop. Both now surface as clean `connection failed` tool errors.
+- **A crashing tool can no longer kill the session.** `tools/call` dispatch
+  gained a last-resort handler: any unexpected exception becomes an
+  `internal error: <Type>: <message>` tool result instead of a dead stdio
+  loop. One buggy tool errors; the other tools keep answering.
+- **`mcpify status <url>` / `mcpify diff <url>` crashed on URL specs** with
+  `UnboundLocalError` — a function-local `from urllib.parse import urlparse`
+  in one branch of `main()` shadowed the module import for every other
+  branch. Only file-path specs ever reached these commands in the test
+  suite, so URL specs (the documented remote-spec flow) died on contact.
+  The import is module-level now; both commands accept URLs again.
+- **`mcpify mock` was a silent no-op.** The subcommand parsed its arguments
+  and exited 0 without binding anything — the dispatch branch was simply
+  missing from `main()` (tests called `serve_mock()` directly and never
+  noticed). `mock` now serves the fake API, announces its address, and
+  fails cleanly on a bad `--http` value or bind.
+
+### Changed — faster YAML, sharper doctor
+- **YAML specs parse ~4-10x faster.** When PyYAML ships with libyaml, the C
+  loader (`CSafeLoader`) is used — identical SafeLoader semantics, but a
+  Stripe-sized 6 MB spec drops from ~11s to ~2.6s end-to-end. Pure-Python
+  fallback unchanged for environments without libyaml. Config files
+  (`.mcpify.yaml`) use the same fast path.
+- **doctor counts parameters with no schema/type** (`untyped_parameters` in
+  `--json`): the most common breakage in real-world specs per tooling
+  authors ("missing parameter types") — mcpify still sends them as untyped
+  strings, but now the spec author sees why agents might guess wrong values.
+
+### Added
+- 13 new tests (506 passing, twenty-eight suites) covering: timeout → tool
+  error with session survival, connection-refused → clean error, unexpected
+  exception → `internal error` result, doctor untyped-parameter reporting
+  (json + human + clean-when-typed), mock command serving + bad-bind
+  rejection, URL-spec status/diff regression, YAML loader equivalence
+  (default vs forced pure-Python).
+
 ## [1.16.1] - 2026-08-31
 
 ### Fixed

@@ -12,6 +12,7 @@ import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
+from urllib.parse import urlparse
 
 from . import __version__
 from .config import api_sections, apply_to_namespace, load_config, resolve, validate
@@ -969,10 +970,8 @@ def main(argv: list[str] | None = None) -> None:
         if getattr(args, "spec", None) is None:
             _fail("a spec path or URL is required (or set `spec` in the config)")
         spec_arg = args.spec
-        if spec_arg.startswith(("http://", "https://")):
-            from urllib.parse import urlparse
-
-            if urlparse(spec_arg).path in ("", "/"):
+        # bare origin (no path): auto-discover /openapi.json, /swagger.json...
+        if spec_arg.startswith(("http://", "https://")) and urlparse(spec_arg).path in ("", "/"):
                 try:
                     args.spec, _hint = discover_spec(spec_arg)
                     print(f"discovered: {args.spec}", file=sys.stderr)
@@ -1588,6 +1587,22 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"policy:   {policy}")
         sys.exit(0 if erisilebilir else 2)
 
+    elif args.command == "mock":
+        # serve_mock blocks serving the fake API; spec errors surface as clean CLI failures
+        from .http_transport import parse_http_bind
+        from .mock import serve_mock
+
+        try:
+            host, port = parse_http_bind(args.http)
+        except ValueError as err:
+            _fail(f"--http: {err}")
+        try:
+            serve_mock(args.spec, host, port, delay_seconds=args.delay_ms / 1000.0)
+        except SpecError as err:
+            _fail(str(err))
+        except OSError as err:
+            _fail(f"could not bind {host}:{port}: {err}")
+
     elif args.command == "doctor":
         try:
             spec = load_spec(args.spec)
@@ -1596,7 +1611,9 @@ def main(argv: list[str] | None = None) -> None:
         total = 0
         missing_id = 0
         no_summary = 0
+        untyped_params = 0
         seen_ids: dict[str, int] = {}
+        paths_section = spec.get("paths") or {}
         for _method, _path, operation in iter_operations(spec):
             total += 1
             op_id = operation.get("operationId")
@@ -1606,6 +1623,13 @@ def main(argv: list[str] | None = None) -> None:
                 missing_id += 1
             if not (operation.get("summary") or operation.get("description")):
                 no_summary += 1
+            declared = list((paths_section.get(_path) or {}).get("parameters") or [])
+            declared += list(operation.get("parameters") or [])
+            for param in declared:
+                if not isinstance(param, dict) or "$ref" in param:
+                    continue  # a $ref carries its schema at the target
+                if not (param.get("schema") or param.get("content") or param.get("type")):
+                    untyped_params += 1
         duplicate_ids = sum(count - 1 for count in seen_ids.values() if count > 1)
         servers = spec_servers(spec)
         variabled = [s for s in servers if "{" in s]
@@ -1629,6 +1653,9 @@ def main(argv: list[str] | None = None) -> None:
                             "suffixes; rename them in the spec for clearer tool names")
         if no_summary:
             warnings.append(f"{no_summary}/{total} operations have no summary")
+        if untyped_params:
+            warnings.append(f"{untyped_params} parameter(s) have no schema/type — tools expose "
+                            "them as untyped strings; add a schema in the spec for reliable agent calls")
         if variabled:
             warnings.append(f"server URL(s) contain variables: {', '.join(variabled)}")
         if not servers:
@@ -1669,6 +1696,7 @@ def main(argv: list[str] | None = None) -> None:
                 "missing_operation_id": missing_id,
                 "duplicate_operation_ids": duplicate_ids,
                 "missing_summary": no_summary,
+                "untyped_parameters": untyped_params,
                 "warnings": warnings,
                 "instruction_like_text": instruction_like,
                 "overlong_descriptions": overlong_desc,
@@ -1694,6 +1722,8 @@ def main(argv: list[str] | None = None) -> None:
             print(warn(f"warning: {duplicate_ids} duplicate operationId(s) — suffixed _2/_3 (rename in the spec for clearer tool names)"))
         if no_summary:
             print(warn(f"warning: {no_summary}/{total} operations have no summary (agents see no description)"))
+        if untyped_params:
+            print(warn(f"warning: {untyped_params} parameter(s) have no schema/type (tools send untyped strings — add a schema so agents pass valid values)"))
         if variabled:
             print(warn(f"warning: server URL(s) contain variables: {', '.join(variabled)} — pass --base-url"))
         if servers and not servers[0].startswith(("http://", "https://")):

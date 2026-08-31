@@ -674,6 +674,11 @@ class ApiServer:
                 return self._error(request_id, -32601, f"unknown tool: {name}")
             except RequestError as err:
                 return self._result(request_id, self._text(str(err), is_error=True))
+            except Exception as err:  # a crashing tool must return an error result, not kill the session
+                return self._result(
+                    request_id,
+                    self._text(f"internal error: {type(err).__name__}: {err}", is_error=True),
+                )
             return self._result(request_id, payload)
         return self._error(request_id, -32601, f"method not found: {method}")
 

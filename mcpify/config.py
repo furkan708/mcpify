@@ -154,7 +154,11 @@ def _load_yaml(path: Path) -> dict[str, Any]:
         raise ValueError(
             f"{path.name} is YAML; install the optional extra: pip install 'mcpify[yaml]'"
         ) from err
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    try:
+        from yaml import CSafeLoader as _Loader  # libyaml C parser, ~10x faster on big configs
+    except ImportError:
+        from yaml import SafeLoader as _Loader
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=_Loader) or {}
 
 
 def _load_json(path: Path) -> dict[str, Any]:

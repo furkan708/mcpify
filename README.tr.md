@@ -85,7 +85,7 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 
 - **Odaklı ve üretim hazırı:** Tek iş (OpenAPI → MCP), tek arayüz (stdio
   üzerinde tek komut), sıfır runtime bağımlılığı. Odaklılık küçüklük demek değil:
-  27 pakette 493 test, iki transport (stdio + HTTP/SSE), çift MCP-spec uyumu, OAuth2,
+  28 pakette 506 test, iki transport (stdio + HTTP/SSE), çift MCP-spec uyumu, OAuth2,
   çok-API aggregation, politika katmanı, ETag-farkında cache, güvenli retry, health
   sorgusu, audit kaydı, token-bazlı tool RBAC'ı, okuma/yazma kimlik ayrımı ve plugin
   hook'ları bu tek işi destekliyor.
@@ -102,13 +102,15 @@ Her sürümde 10 kategorilik denetim listesi yeniden koşulur: döngüsel `$ref`
 multipart gövde, server URL değişkenleri, relative base URL, devasa yanıtlar —
 12 senaryonun hepsi yayımlanmış hata çalışmalarından türetildi, düzeltildi ve
 regresyon testiyle kilitlendi. MCP yaşam döngüsü zorunlu tutulur; 40k üzeri
-yanıtlar kesilir; kimlik bilgileri asla loglanmaz.
+yanıtlar kesilir; kimlik bilgileri asla loglanmaz. Upstream arızaları (okuma
+timeout'u, bağlantı kopması, bir aracın beklenmedik hatası) oturumu öldürmez:
+temiz `isError` sonuçları + düzeltme önerisi olarak döner.
 
 Tam liste: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
 ## Test ve kalite
 
-**493 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
+**506 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
 yükleyen canlı entegrasyon testidir (çevrimdışında otomatik atlanır).
 Tüm paketler Python 3.10–3.12 üzerinde Linux ve Windows'ta koşar; her
 push'ta `ruff`, strict `mypy` ve CodeQL devreye girer
