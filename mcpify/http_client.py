@@ -40,7 +40,9 @@ class _CrossHostSanitizingRedirectHandler(urllib.request.HTTPRedirectHandler):
     keep working as before.
     """
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+    def redirect_request(  # urllib's base signature is untyped; Any keeps the override strict-clean
+        self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str
+    ) -> Any:
         old_host = urllib.parse.urlsplit(req.full_url).netloc.lower()
         new_host = urllib.parse.urlsplit(newurl).netloc.lower()
         if new_host != old_host:
@@ -333,7 +335,7 @@ def _execute_once(request: dict[str, Any], timeout: float, cache: ResponseCache 
     basla = time.monotonic()
     try:
         # sema operatorun spec/base-url seciminden gelir; ajandan degil (S310 gerekcesi)
-        with _OPENER.open(req, timeout=timeout) as response:  # noqa: S310
+        with _OPENER.open(req, timeout=timeout) as response:
             status = response.status
             headers = dict(response.headers.items())
             raw = _decode_payload(response.read(), headers)

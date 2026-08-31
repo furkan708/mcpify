@@ -7,10 +7,12 @@ connection refused/reset, and an unexpected exception inside a tool.
 Plus doctor's untyped-parameter visibility and the YAML fast path.
 """
 
+import gzip
 import http.server
 import json
 import threading
 import time
+import zlib
 
 import pytest
 
@@ -380,9 +382,6 @@ def test_doctor_silent_on_resolvable_ref(tmp_path, capsys):
 # cross-host redirect credential leaks, spec defaults in the schema.
 # ---------------------------------------------------------------------------
 
-import gzip
-import zlib
-
 
 class WeirdAPI(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -433,8 +432,10 @@ def weird_api():
     thread2 = threading.Thread(target=main.serve_forever, daemon=True)
     thread2.start()
     yield f"http://127.0.0.1:{main.server_port}"
-    main.shutdown(); main.server_close()
-    landing.shutdown(); landing.server_close()
+    main.shutdown()
+    main.server_close()
+    landing.shutdown()
+    landing.server_close()
 
 
 def _weird_spec(base):
