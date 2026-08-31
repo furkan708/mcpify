@@ -386,6 +386,33 @@ at `--auth-env`, 429 reports `Retry-After` (mcpify never retries
 automatically), 5xx blames the upstream, and 404s suggest the closest
 known paths.
 
+### Error taxonomy: three categories, not one bucket
+
+Every tool error leads with a stable, greppable token and carries the same
+category machine-readably in `structuredContent` — because the agent's
+correct next action differs per class, and a string comparison beats
+prose comprehension under token pressure:
+
+| Leading token | Meaning | HTTP | Correct agent action |
+| --- | --- | --- | --- |
+| `retryable:` | the world was temporarily uncooperative | 0 (timeout/reset), 429, 5xx | retry the same call, maybe with backoff |
+| `invalid_request:` | this call can never succeed as constructed | 400, 404, 422, other 4xx | change the input or give up on this approach |
+| `forbidden:` | not allowed regardless of input | 401, 403 | stop; surface it to the human |
+
+```json
+{
+  "isError": true,
+  "structuredContent": {
+    "error_category": "retryable",
+    "http_status": 503,
+    "retryable": true
+  }
+}
+```
+
+The spec exempts `isError` results from output validation, so the taxonomy
+object never collides with a tool's declared `outputSchema`.
+
 ### Lazy mode for large APIs (`--lazy`)
 
 ```bash

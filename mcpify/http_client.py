@@ -396,6 +396,27 @@ def _execute_once(request: dict[str, Any], timeout: float, cache: ResponseCache 
 MAX_RESULT_CHARS = 40_000
 
 
+def error_category(status: int) -> str:
+    """Classify an HTTP failure into the three actions an agent can take.
+
+    ``retryable``      — the request is fine, the world was temporarily
+                         uncooperative (timeouts, resets, 429, 5xx):
+                         retry the same call, maybe with backoff.
+    ``invalid_request``— this call can never succeed as constructed
+                         (400/404/422...): change the input or give up.
+    ``forbidden``      — structurally not allowed regardless of input
+                         (401/403): stop, surface it to the human.
+
+    The token leads the error text and is mirrored in structuredContent,
+    so the category is a string comparison, not a comprehension task.
+    """
+    if status in (401, 403):
+        return "forbidden"
+    if status == 0 or status == 429 or status >= 500:
+        return "retryable"
+    return "invalid_request"
+
+
 def remediation(result: dict[str, Any], tool: dict[str, Any] | None = None, known_paths: list[str] | None = None) -> str:
     """Turn an HTTP error into corrective guidance the agent can act on.
 

@@ -33,6 +33,7 @@ from .http_client import (
     RateLimiter,
     ResponseCache,
     count_redact_targets,
+    error_category,
     execute,
     format_result,
     project_json,
@@ -407,7 +408,17 @@ class ApiServer:
         if status == 0 or status >= 400:
             text, _ = format_result(result)
             extra = remediation(result, tool, self.known_paths)
-            return self._text(text + extra, is_error=True)
+            category = error_category(status)
+            payload = self._text(f"{category}: {text}{extra}", is_error=True)
+            # the category also travels machine-readably: the model's correct
+            # next action differs per class (retry vs restructure vs escalate)
+            # and a string compare beats prose comprehension under pressure
+            payload["structuredContent"] = {
+                "error_category": category,
+                "http_status": status,
+                "retryable": category == "retryable",
+            }
+            return payload
 
         content_type = (result.get("headers") or {}).get("Content-Type", "")
         media_type = content_type.split(";")[0].strip().lower()

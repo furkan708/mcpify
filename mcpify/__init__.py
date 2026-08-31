@@ -3,7 +3,7 @@
 from .spec import SpecError, load_spec, resolve_ref, resolve_schema
 from .tools import AuthConfig, RequestError, build_request, spec_to_tools
 
-__version__ = "1.18.1"
+__version__ = "1.19.0"
 __all__ = [
     "AuthConfig",
     "RequestError",

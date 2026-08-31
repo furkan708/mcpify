@@ -278,15 +278,26 @@ def test_circular_response_schema_degrades_to_no_declaration(base):
     assert "structuredContent" not in response["result"]
 
 
-def test_error_results_stay_text_only_even_with_output_schema(base):
+def test_error_results_carry_taxonomy_not_output_data_even_with_output_schema(base):
+    # Since the error-taxonomy release, error results DO carry
+    # structuredContent — the machine-readable category (the 2025-06-18 spec
+    # exempts isError results from output validation, so this is safe). What
+    # must NOT happen is schema-shaped DATA posing as a successful output.
     dead = ApiServer(SPEC, "http://127.0.0.1:1")
     dead.handle_message({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
     dead.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"})
     response = call(dead, "get_dog", {"dogId": 1})
     result = response["result"]
     assert result["isError"] is True
-    assert "structuredContent" not in result
     assert "Connection failed" in result["content"][0]["text"]
+    taxonomy = result["structuredContent"]
+    assert taxonomy["error_category"] == "retryable"
+    assert taxonomy["retryable"] is True
+    assert taxonomy["http_status"] == 0
+    # and the taxonomy object is not the tool's declared output schema shape
+    declared = next((t for t in dead.public_tools() if t["name"] == "get_dog"), {}).get("outputSchema")
+    if declared:
+        assert set(taxonomy) != set(declared.get("properties", {}))
 
 
 # ---------------------------------------------------------------------------

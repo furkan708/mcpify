@@ -524,3 +524,96 @@ def test_spec_default_is_advertised_in_schema():
                                      "responses": {"200": {"description": "ok"}}}}}}
     tool = spec_to_tools(spec)[0]
     assert tool["inputSchema"]["properties"]["page"]["default"] == 42
+
+
+# ---------------------------------------------------------------------------
+# Error taxonomy (r/mcp follow-up): retryable / invalid_request / forbidden
+# must be distinguishable from the model's seat — a stable leading token in
+# the text AND a machine-readable structuredContent category, because the
+# correct next action differs for each.
+# ---------------------------------------------------------------------------
+
+class TaxonomyAPI(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def _send(self, code, body=b"{}", ctype="application/json"):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == "/gone":
+            self._send(404, b'{"error": "no such thing"}')
+        elif self.path == "/denied":
+            self._send(403, b'{"error": "no scopes"}')
+        elif self.path == "/boom":
+            self._send(503, b'{"error": "down"}')
+        else:
+            self._send(200, b"{}")
+
+
+@pytest.fixture()
+def taxonomy_api():
+    server = http.server.HTTPServer(("127.0.0.1", 0), TaxonomyAPI)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_port}"
+    server.shutdown()
+    server.server_close()
+
+
+def _taxonomy_spec(base):
+    return {
+        "openapi": "3.0.0", "info": {"title": "Tax", "version": "1"},
+        "servers": [{"url": base}],
+        "paths": {
+            "/gone": {"get": {"operationId": "gone", "summary": "g", "responses": {"200": {"description": "ok"}}}},
+            "/denied": {"get": {"operationId": "denied", "summary": "d", "responses": {"200": {"description": "ok"}}}},
+            "/boom": {"get": {"operationId": "boom", "summary": "b", "responses": {"200": {"description": "ok"}}}},
+        },
+    }
+
+
+def _taxonomy_call(server, name):
+    return server.handle_message(rpc("tools/call", {"name": name, "arguments": {}}))["result"]
+
+
+def test_error_404_is_invalid_request(taxonomy_api):
+    server = _initialized_spec(_taxonomy_spec(taxonomy_api), taxonomy_api, retry=0)
+    result = _taxonomy_call(server, "gone")
+    text = result["content"][0]["text"]
+    assert text.startswith("invalid_request:"), text[:80]
+    assert result["structuredContent"]["error_category"] == "invalid_request"
+    assert result["structuredContent"]["retryable"] is False
+
+
+def test_error_403_is_forbidden(taxonomy_api):
+    server = _initialized_spec(_taxonomy_spec(taxonomy_api), taxonomy_api, retry=0)
+    result = _taxonomy_call(server, "denied")
+    assert result["content"][0]["text"].startswith("forbidden:")
+    assert result["structuredContent"]["error_category"] == "forbidden"
+    assert result["structuredContent"]["retryable"] is False
+
+
+def test_error_503_is_retryable(taxonomy_api):
+    server = _initialized_spec(_taxonomy_spec(taxonomy_api), taxonomy_api, retry=0)
+    result = _taxonomy_call(server, "boom")
+    assert result["content"][0]["text"].startswith("retryable:")
+    assert result["structuredContent"]["error_category"] == "retryable"
+    assert result["structuredContent"]["retryable"] is True
+
+
+def test_timeout_is_retryable_with_category(slow_api, tmp_path):
+    spec_path = tmp_path / "spec.json"
+    spec = load_spec(SPEC)
+    spec["servers"] = [{"url": slow_api}]
+    spec_path.write_text(json.dumps(spec), encoding="utf-8")
+    server = _initialized(str(spec_path), slow_api, timeout=0.3, retry=0)
+    result = server.handle_message(rpc("tools/call", {"name": "list_pets", "arguments": {}}))["result"]
+    text = result["content"][0]["text"]
+    assert text.startswith("retryable:"), text[:80]
+    assert result["structuredContent"]["error_category"] == "retryable"
+    assert "timeout" in text  # the specific cause stays in the prose

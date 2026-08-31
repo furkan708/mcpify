@@ -6,6 +6,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-08-31
+
+### Added — error taxonomy: three categories, not one bucket
+- **Every tool error now leads with a stable, greppable token** —
+  `retryable:` (timeout/reset/429/5xx: retry the same call), 
+  `invalid_request:` (400/404/422: change the input or give up),
+  `forbidden:` (401/403: stop, surface it to the human). The category is
+  a string comparison for the model, not a comprehension task; the
+  specific cause and remediation stay in the prose after the token.
+- **The category also travels machine-readably**: error results carry
+  `structuredContent` with `error_category`, `http_status`, and
+  `retryable` (the 2025-06-18 spec exempts isError results from output
+  validation, so this never collides with a declared outputSchema).
+  Prompted by r/mcp: "retryable, permanently broken, and not allowed need
+  to be three different answers, because the correct next action differs
+  for each."
+- **Regression hygiene, as the community asked:** the four taxonomy tests
+  were written first and watched failing against 1.18.1 before the fix
+  landed; the timeout handler was then removed again on purpose to watch
+  both timeout tests go red before being restored (test-first + mutation
+  receipt in the release thread).
+- 4 new tests (520 passing, twenty-eight suites); USAGE documents the
+  taxonomy table.
+
 ## [1.18.1] - 2026-08-31
 
 ### Fixed
