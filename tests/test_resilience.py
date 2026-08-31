@@ -323,3 +323,52 @@ def test_yaml_pure_python_fallback_parses_identically(tmp_path, monkeypatch):
     monkeypatch.undo()
     via_default = load_spec(str(path))
     assert via_fallback == via_default
+
+
+# ---------------------------------------------------------------------------
+# doctor: parameter schemas whose $ref target is missing from the document
+# (found live on r/mcp — the parameter silently degraded to an untyped
+# string and nothing reported it)
+# ---------------------------------------------------------------------------
+
+BROKEN_REF_SPEC = {
+    "openapi": "3.0.0",
+    "info": {"title": "BrokenRef", "version": "1.0"},
+    "servers": [{"url": "https://api.example.com"}],
+    "paths": {
+        "/search": {
+            "get": {
+                "operationId": "search",
+                "summary": "Search",
+                "parameters": [
+                    {"name": "q", "in": "query", "schema": {"$ref": "#/components/schemas/Missing"}},
+                ],
+                "responses": {"200": {"description": "ok"}},
+            }
+        }
+    },
+}
+
+
+def test_doctor_reports_broken_parameter_ref(tmp_path, capsys):
+    from mcpify.cli import main as cli_main
+
+    path = tmp_path / "broken_ref.json"
+    path.write_text(json.dumps(BROKEN_REF_SPEC), encoding="utf-8")
+    with pytest.raises(SystemExit):
+        cli_main(["doctor", "--json", str(path)])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["broken_parameter_refs"] == 1
+    assert any("do not exist" in w for w in payload["warnings"])
+
+
+def test_doctor_silent_on_resolvable_ref(tmp_path, capsys):
+    from mcpify.cli import main as cli_main
+
+    spec = json.loads(json.dumps(BROKEN_REF_SPEC))
+    spec["components"] = {"schemas": {"Missing": {"type": "string"}}}
+    path = tmp_path / "fixed_ref.json"
+    path.write_text(json.dumps(spec), encoding="utf-8")
+    cli_main(["doctor", "--json", str(path)])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["broken_parameter_refs"] == 0

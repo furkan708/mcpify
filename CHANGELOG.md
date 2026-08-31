@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.2] - 2026-08-31
+
+### Fixed
+- **doctor reports parameter schemas whose `$ref` target is missing from the
+  document** (`broken_parameter_refs` in `--json`). Until now an internal
+  `$ref` pointing at a nonexistent component silently degraded the parameter
+  to an untyped string at serve time — the exact "what does the model
+  believe" failure mode a sharp r/mcp commenter asked about, found live
+  while double-checking the answer: nothing errored, the agent just got a
+  string where the spec promised a type. doctor now names the count and the
+  fix; resolvable refs and untyped-param detection are unchanged.
+
 ## [1.17.1] - 2026-08-31
 
 ### Fixed

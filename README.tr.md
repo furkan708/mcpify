@@ -85,7 +85,7 @@ Cursor için aynı JSON'u `.cursor/mcp.json` dosyasına koyun. Claude Code için
 
 - **Odaklı ve üretim hazırı:** Tek iş (OpenAPI → MCP), tek arayüz (stdio
   üzerinde tek komut), sıfır runtime bağımlılığı. Odaklılık küçüklük demek değil:
-  28 pakette 506 test, iki transport (stdio + HTTP/SSE), çift MCP-spec uyumu, OAuth2,
+  28 pakette 508 test, iki transport (stdio + HTTP/SSE), çift MCP-spec uyumu, OAuth2,
   çok-API aggregation, politika katmanı, ETag-farkında cache, güvenli retry, health
   sorgusu, audit kaydı, token-bazlı tool RBAC'ı, okuma/yazma kimlik ayrımı ve plugin
   hook'ları bu tek işi destekliyor.
@@ -110,7 +110,7 @@ Tam liste: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
 ## Test ve kalite
 
-**506 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
+**508 test geçiyor**; bunlardan biri gerçek api.weather.gov dokümanını
 yükleyen canlı entegrasyon testidir (çevrimdışında otomatik atlanır).
 Tüm paketler Python 3.10–3.12 üzerinde Linux ve Windows'ta koşar; her
 push'ta `ruff`, strict `mypy` ve CodeQL devreye girer

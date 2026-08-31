@@ -2,7 +2,7 @@
 
 # mcpify
 
-[![Tests](https://img.shields.io/badge/tests-506%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-508%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CI](https://github.com/furkan708/mcpify/actions/workflows/ci.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
 [![PyPI](https://img.shields.io/pypi/v/mcpify-openapi)](https://pypi.org/project/mcpify-openapi/)
@@ -35,7 +35,7 @@ and stays out of the way until you need it:
 
 - **Safe for agents by default** — lazy context budget (`--lazy`), secret masking (`--redact`), blast-radius limits (`--read-only`, per-token RBAC)
 - **Ready for real deployments** — stdio + HTTP/SSE, OAuth2 and split read/write credentials, health probes, audit trail, metrics, multi-API serving, hot reload
-- **Proven, not promised** — 506 tests across twenty-eight suites, a hostile-spec corpus, live-CI checks, zero runtime dependencies
+- **Proven, not promised** — 508 tests across twenty-eight suites, a hostile-spec corpus, live-CI checks, zero runtime dependencies
 
 ## Why you'll like it
 
@@ -354,7 +354,7 @@ Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHEC
 
 ## Tests
 
-**506 passing**, plus one live-integration test that loads the real
+**508 passing**, plus one live-integration test that loads the real
 api.weather.gov document (auto-skipped when offline) and an OTel positive
 test that runs wherever the optional tracing extra is installed. Every
 suite runs on Python 3.10–3.12 across Linux and Windows; `ruff`, strict

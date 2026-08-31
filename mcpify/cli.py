@@ -1612,6 +1612,22 @@ def main(argv: list[str] | None = None) -> None:
         missing_id = 0
         no_summary = 0
         untyped_params = 0
+        broken_refs = 0
+
+        def _pointer_exists(node: Any, ref: str) -> bool:
+            # internal JSON Pointer walk ("#/components/schemas/X") — every
+            # segment must resolve; external refs are out of scope offline
+            if not isinstance(node, dict) or not ref.startswith("#/"):
+                return True
+            current: Any = node
+            for segment in ref[2:].split("/"):
+                segment = segment.replace("~1", "/").replace("~0", "~")
+                if isinstance(current, dict) and segment in current:
+                    current = current[segment]
+                else:
+                    return False
+            return True
+
         seen_ids: dict[str, int] = {}
         paths_section = spec.get("paths") or {}
         for _method, _path, operation in iter_operations(spec):
@@ -1626,9 +1642,16 @@ def main(argv: list[str] | None = None) -> None:
             declared = list((paths_section.get(_path) or {}).get("parameters") or [])
             declared += list(operation.get("parameters") or [])
             for param in declared:
-                if not isinstance(param, dict) or "$ref" in param:
+                if not isinstance(param, dict):
+                    continue
+                if "$ref" in param:
                     continue  # a $ref carries its schema at the target
-                if not (param.get("schema") or param.get("content") or param.get("type")):
+                schema_obj = param.get("schema")
+                if isinstance(schema_obj, dict) and "$ref" in schema_obj:
+                    if not _pointer_exists(spec, str(schema_obj["$ref"])):
+                        broken_refs += 1  # degrades to an untyped string at serve time
+                    continue
+                if not (schema_obj or param.get("content") or param.get("type")):
                     untyped_params += 1
         duplicate_ids = sum(count - 1 for count in seen_ids.values() if count > 1)
         servers = spec_servers(spec)
@@ -1656,6 +1679,10 @@ def main(argv: list[str] | None = None) -> None:
         if untyped_params:
             warnings.append(f"{untyped_params} parameter(s) have no schema/type — tools expose "
                             "them as untyped strings; add a schema in the spec for reliable agent calls")
+        if broken_refs:
+            warnings.append(f"{broken_refs} parameter schema(s) reference components that do not "
+                            "exist in the document — the tool silently degrades the parameter to "
+                            "an untyped string; fix the $ref")
         if variabled:
             warnings.append(f"server URL(s) contain variables: {', '.join(variabled)}")
         if not servers:
@@ -1697,6 +1724,7 @@ def main(argv: list[str] | None = None) -> None:
                 "duplicate_operation_ids": duplicate_ids,
                 "missing_summary": no_summary,
                 "untyped_parameters": untyped_params,
+                "broken_parameter_refs": broken_refs,
                 "warnings": warnings,
                 "instruction_like_text": instruction_like,
                 "overlong_descriptions": overlong_desc,
@@ -1724,6 +1752,8 @@ def main(argv: list[str] | None = None) -> None:
             print(warn(f"warning: {no_summary}/{total} operations have no summary (agents see no description)"))
         if untyped_params:
             print(warn(f"warning: {untyped_params} parameter(s) have no schema/type (tools send untyped strings — add a schema so agents pass valid values)"))
+        if broken_refs:
+            print(warn(f"warning: {broken_refs} parameter schema(s) point at components missing from the document (parameters silently degrade to untyped strings — fix the $ref)"))
         if variabled:
             print(warn(f"warning: server URL(s) contain variables: {', '.join(variabled)} — pass --base-url"))
         if servers and not servers[0].startswith(("http://", "https://")):
