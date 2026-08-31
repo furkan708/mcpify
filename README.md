@@ -29,13 +29,13 @@ mcpify serve https://your-company.com/openapi.json
 uvx --from mcpify-openapi mcpify list examples/petstore.json --cost
 ```
 
-Focused, production-ready, CLI-first: one job (OpenAPI → MCP), with the
-governance, token economics and operations around it that real deployments
-need. 506 tests across twenty-eight suites, two transports (stdio + HTTP
-with SSE responses), dual MCP-spec compatibility, split read/write
-credentials (static and OAuth2), a policy layer, ETag-aware caching, safe
-retries, health probes, an audit trail, per-token tool RBAC and plugin
-hooks back that one job.
+Focused, production-ready, CLI-first: one job (OpenAPI → MCP). Everything
+else — governance, credentials, token economics, operations — is opt-in
+and stays out of the way until you need it:
+
+- **Safe for agents by default** — lazy context budget (`--lazy`), secret masking (`--redact`), blast-radius limits (`--read-only`, per-token RBAC)
+- **Ready for real deployments** — stdio + HTTP/SSE, OAuth2 and split read/write credentials, health probes, audit trail, metrics, multi-API serving, hot reload
+- **Proven, not promised** — 506 tests across twenty-eight suites, a hostile-spec corpus, live-CI checks, zero runtime dependencies
 
 ## Why you'll like it
 
