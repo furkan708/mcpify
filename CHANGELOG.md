@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.1] - 2026-08-31
+
+### Fixed
+- **Release/deployment hygiene.** The v1.18.0 tag was moved after the first
+  publish, so a second Release run attempted to publish 1.18.0 again,
+  failed with "duplicate version", and left the repo's pypi deployment
+  status red. The published artifact also predated one style/typing commit
+  by minutes. This patch re-syncs the release with main HEAD (annotation
+  on the redirect override, battery import placement) so the package, the
+  tag, and the deployment status all agree. No behavior change; 516 tests
+  unchanged.
+
 ## [1.18.0] - 2026-08-31
 
 ### Security
