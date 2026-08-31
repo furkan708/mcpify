@@ -973,6 +973,36 @@ against the configured API with the configured credential. Unreachable
 exits 1 — you learn the credential or URL is wrong in the same minute
 you write the config, not on the first agent call.
 
+### `mcpify try` session controls — `:fields`, `:redact`
+
+```text
+:redact password,token     # mask these fields in every subsequent response
+:fields id,name            # project subsequent responses to these fields
+:redact                    # show the current setting
+:fields -                  # clear the session projection
+```
+
+Both apply immediately to subsequent tool calls in the session — try a
+suspected-secret field once, see `***`, move on without restarting the
+server. The same two settings are visible in `mcpify status` (`policy:`
+line, or per-API in multi-API reports) and in Prometheus counters
+(`mcpify_redactions_total`, `mcpify_projection_responses_total`).
+
+### `mcpify diff --probe` — prove the NEW spec before adopting it
+
+```bash
+mcpify diff old.yaml new.yaml --probe --auth-env MY_KEY
+```
+
+The upgrade report now ends with two live facts: the **surface-cost
+delta** (`surface cost: ~18 → ~38 tokens (+111.1%)` — what the change
+does to every agent's tools/list bill) and a **probe of the NEW spec's
+API** — one argument-free GET, with your credential when `--auth-env` is
+given. Probe failure exits 2 (infra problem, distinct from the
+breaking-change exit 1); `--fail-on-http-error` counts 4xx/5xx as
+failure too. Adopting a spec that does not answer is now impossible to
+do silently.
+
 ### `mcpify list --cost --lazy` — price the lazy lever too
 
 ```bash

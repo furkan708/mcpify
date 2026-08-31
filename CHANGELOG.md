@@ -6,6 +6,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-08-31
+
+### Added — visibility everywhere the policy already runs
+- **`status` shows the token policy:** multi-API status lines and JSON
+  carry `fields` / `redact` / `rate-limit` per API; single-spec status
+  gains a `policy:` line and the three flags (`--fields/--redact/
+  --rate-limit`) — what the API costs and what is masked, visible where
+  you already check reachability. (The single-spec flags were a real
+  gap: the dispatch read them but the parser never declared them.)
+- **REPL session controls:** `:redact password,token` and `:fields
+  id,name` set session-level response masking/projection for subsequent
+  calls; bare command shows the state, `-` clears. Applies to
+  single-API and aggregated sessions alike.
+- **`diff --probe`:** before adopting a NEW spec, one live GET proves
+  the API answers (`--auth-env` to prove the credential too); probe
+  failure exits 2 — an infra problem, distinct from breaking-change
+  exit 1. Report also gained a **surface-cost delta**: the price move
+  of the change itself (`surface cost: ~18 → ~38 tokens (+111.1%)`).
+- **Dashboard form:** example placeholders on every field plus a
+  `retry-delay` input; generated configs keep floats as numbers.
+- 12 new tests — **490 passing** across twenty-seven suites.
+
 ## [1.15.0] - 2026-08-31
 
 ### Added — pre-flight that proves things, and counters that show it

@@ -800,6 +800,20 @@ def _doctor_probe(spec: dict[str, Any], base_url: str | None, timeout: float,
                      fail_on_http_error=fail_on_http_error)
 
 
+def _policy_note(fields: Any, redact: Any, rate_limit: Any) -> str:
+    """Human-readable token-policy summary for `status` output."""
+    pieces: list[str] = []
+    if fields:
+        names = sorted(fields) if not isinstance(fields, str) else fields
+        pieces.append("fields=" + (",".join(names) if not isinstance(names, str) else names))
+    if redact:
+        names = sorted(redact) if not isinstance(redact, str) else redact
+        pieces.append("redact=" + (",".join(names) if not isinstance(names, str) else names))
+    if rate_limit:
+        pieces.append(f"rate-limit={rate_limit:g}")
+    return " · ".join(pieces)
+
+
 def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "output-server":
@@ -871,6 +885,12 @@ def main(argv: list[str] | None = None) -> None:
     p_status.add_argument("--server", help="pick among the spec's declared servers (index or name)")
     p_status.add_argument("--timeout", type=float, default=10.0, help="probe timeout seconds")
     p_status.add_argument("--json", action="store_true", help="machine-readable output")
+    p_status.add_argument("--fields", default=None, metavar="F1,F2",
+                          help="report the configured response projection")
+    p_status.add_argument("--redact", default=None, metavar="F1,F2",
+                          help="report the configured secret masking")
+    p_status.add_argument("--rate-limit", type=float, default=None, metavar="RPS",
+                          help="report the configured upstream throttle")
 
     p_ui = sub.add_parser("ui", help="operations dashboard: tool explorer, masked logs, health, config editor")
     _add_serve_options(p_ui, with_http=True)
@@ -888,6 +908,16 @@ def main(argv: list[str] | None = None) -> None:
     p_diff.add_argument("--json", action="store_true", help="machine-readable report")
     p_diff.add_argument("--fail-on-breaking", action="store_true",
                         help="exit 1 when breaking changes exist (CI gate)")
+    p_diff.add_argument("--probe", action="store_true",
+                        help="live check of the NEW spec: one argument-free GET against the API "
+                        "before you adopt it; unreachable exits 2")
+    p_diff.add_argument("--base-url", default=None, help="override the base URL to probe")
+    p_diff.add_argument("--auth-env", default=None, help="probe the NEW spec with this credential")
+    p_diff.add_argument("--auth-style", default=None, help="bearer|basic|header|query (auto-detected when omitted)")
+    p_diff.add_argument("--auth-name", default=None, help="header/query name for non-bearer styles")
+    p_diff.add_argument("--timeout", type=float, default=10.0, help="probe timeout seconds")
+    p_diff.add_argument("--fail-on-http-error", action="store_true",
+                        help="4xx/5xx probe responses count as a failed probe (exit 2)")
 
     sub.add_parser(
         "config-schema",
@@ -971,10 +1001,38 @@ def main(argv: list[str] | None = None) -> None:
         except SpecError as err:
             _fail(str(err))
         rapor = diff_specs(eski, yeni)
+        from .tools import surface_cost_tokens as _surface_cost
+
+        eski_t = _surface_cost(spec_to_tools(eski))
+        yeni_t = _surface_cost(spec_to_tools(yeni))
+        rapor["surface_cost_tokens"] = {"old": eski_t, "new": yeni_t}
+        if args.probe:
+            from .probe import run_probe
+
+            probe_base = args.base_url or next(
+                (s for s in spec_servers(yeni) if s.startswith(("http://", "https://"))), None)
+            rapor["probe"] = run_probe(yeni, probe_base, args.timeout,
+                                       auth=_resolve_auth(args, yeni),
+                                       fail_on_http_error=args.fail_on_http_error)
         if args.json:
             print(json.dumps(rapor, indent=2))
         else:
             print(render(rapor))
+            delta = yeni_t - eski_t
+            pct = (delta / eski_t * 100) if eski_t else 0.0
+            not_ = f"\033[2m surface cost: ~{eski_t:,} → ~{yeni_t:,} tokens ({pct:+.1f}%)\033[0m" if USE_COLOR else \
+                f"surface cost: ~{eski_t:,} → ~{yeni_t:,} tokens ({pct:+.1f}%)"
+            print(not_)
+            if args.probe:
+                pr = rapor["probe"]
+                if pr["ok"]:
+                    tag = ", authenticated" if pr.get("authenticated") else ""
+                    print(f"probe:    {pr['method']} {pr['path']} → {pr['status']} reachable "
+                          f"({pr['latency_seconds']:.2f}s{tag})")
+                else:
+                    print(f"probe:    {pr.get('error', 'failed')}")
+        if args.probe and not rapor["probe"]["ok"]:
+            sys.exit(2)  # the NEW spec's API does not answer: infra problem, not a breaking diff
         if args.fail_on_breaking and rapor["breaking"]:
             sys.exit(1)
 
@@ -1446,6 +1504,11 @@ def main(argv: list[str] | None = None) -> None:
                 "api_status": sonuc["status"],
                 "latency_seconds": round(time.monotonic() - started, 3),
                 "tools": len(entry["tools"]),
+                "fields": sorted(entry["fields"]) if entry.get("fields") else None,
+                "redact": sorted(entry["redact"]) if entry.get("redact") else None,
+                "rate_limit": entry.get("rate-limit"),
+                "policy": _policy_note(entry.get("fields"), entry.get("redact"),
+                                       entry.get("rate-limit")),
             })
         rapor = {"apis": results, "all_reachable": all(r["api_reachable"] for r in results),
                  "version": __version__}
@@ -1454,8 +1517,11 @@ def main(argv: list[str] | None = None) -> None:
         else:
             for r in results:
                 durum = "reachable" if r["api_reachable"] else "UNREACHABLE"
-                print(f"[{r['api']}] {durum} (status {r['api_status']}, "
-                      f"{r['latency_seconds']:.2f}s) — {r['base_url']} — {r['tools']} tools")
+                line = (f"[{r['api']}] {durum} (status {r['api_status']}, "
+                        f"{r['latency_seconds']:.2f}s) — {r['base_url']} — {r['tools']} tools")
+                if r["policy"]:
+                    line += f" · {r['policy']}"
+                print(line)
         sys.exit(0 if rapor["all_reachable"] else 2)
 
     elif args.command == "status":
@@ -1494,6 +1560,9 @@ def main(argv: list[str] | None = None) -> None:
             "tools": len(spec_to_tools(spec, strict=getattr(args, "strict", False))),
             "auth_env": auth_env,
             "auth_env_set": bool(os.environ.get(auth_env)) if auth_env else None,
+            "fields": getattr(args, "fields", None),
+            "redact": getattr(args, "redact", None),
+            "rate_limit": getattr(args, "rate_limit", None),
             "version": __version__,
         }
         if args.json:
@@ -1511,6 +1580,12 @@ def main(argv: list[str] | None = None) -> None:
             if auth_env:
                 setlenmis = "set" if rapor["auth_env_set"] else "NOT SET"
                 print(f"auth:     {auth_env} [{setlenmis}]")
+            policy = _policy_note(
+                _parse_fields(getattr(args, "fields", None), "--fields"),
+                _parse_fields(getattr(args, "redact", None), "--redact"),
+                getattr(args, "rate_limit", None))
+            if policy:
+                print(f"policy:   {policy}")
         sys.exit(0 if erisilebilir else 2)
 
     elif args.command == "doctor":

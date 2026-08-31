@@ -9,6 +9,8 @@ Commands:
   <number> | <name>   select a tool and fill its arguments
   :raw NAME {json}    call a tool with arguments given as inline JSON
   :info [SEL]         show the full schema of the selected tool
+  :fields [F1,F2|-]   show / set / clear session response projection
+  :redact [F1,F2|-]   show / set / clear session secret masking
   :ls                 re-list the tools
   :h | :help          this help
   :q | :quit          leave (Ctrl+C / Ctrl+D also work)
@@ -33,6 +35,8 @@ commands:
   <number> | <name>   select a tool and fill its arguments
   :raw NAME {json}    call a tool with inline JSON arguments
   :info [SEL]         show the full schema of the selected tool
+  :fields [F1,F2|-]   show / set / clear session response projection
+  :redact [F1,F2|-]   show / set / clear session secret masking
   :ls                 re-list the tools
   :h | :help          this help
   :q | :quit          leave"""
@@ -189,6 +193,35 @@ def run(
             else:
                 out(json.dumps({k: v for k, v in target.items() if not k.startswith("_")},
                                ensure_ascii=False, indent=2))
+            continue
+        if line.startswith((":fields", ":redact")):
+            cmd = line.split(" ", 1)[0]
+            attr = cmd[1:]  # server attribute / entries key: no colon
+            rest = line[len(cmd):].strip()
+            if rest in ("-", "off", "clear"):
+                setattr(server, attr, None)
+                if hasattr(server, "entries"):
+                    for entry in server.entries:
+                        entry[attr] = None
+                out(f"  {attr}: (off)")
+                continue
+            if not rest:
+                current = getattr(server, attr, None)
+                shown = ",".join(sorted(current)) if current else "(off)"
+                out(f"  {attr}: {shown}")
+                continue
+            from .http_client import parse_fields
+
+            try:
+                chosen = parse_fields(rest)
+            except ValueError as err:
+                out(f"  ! {err}")
+                continue
+            setattr(server, attr, chosen)
+            if hasattr(server, "entries"):
+                for entry in server.entries:
+                    entry[attr] = chosen
+            out(f"  {attr}: {','.join(sorted(chosen))} (applies to subsequent calls)")
             continue
         if line.startswith(":raw"):
             parts = line[len(":raw"):].strip().split(" ", 1)

@@ -109,17 +109,18 @@ details summary{cursor:pointer;color:var(--acc);font-size:12px}
 <section><h2>Log tail <span class="kv">(masked)</span></h2><div id="logs">—</div></section>
 <section><h2>Config editor <span class="kv" id="cfgpath"></span></h2>
 <div class="grid">
-<label>spec<input id="c-spec" style="width:100%"></label>
-<label>base-url<input id="c-base-url" style="width:100%"></label>
-<label>auth-env<input id="c-auth-env" style="width:100%"></label>
+<label>spec<input id="c-spec" placeholder="openapi.json | https://api.example.com/openapi.json" style="width:100%"></label>
+<label>base-url<input id="c-base-url" placeholder="https://api.example.com/v1" style="width:100%"></label>
+<label>auth-env<input id="c-auth-env" placeholder="MY_API_KEY" style="width:100%"></label>
 <label>format<select id="c-format"><option>auto</option><option>json</option><option>xml</option></select></label>
-<label>cache-ttl<input id="c-cache-ttl" type="number" min="0" style="width:100%"></label>
-<label>rate-limit<input id="c-rate-limit" type="number" min="0" step="0.1" style="width:100%"></label>
+<label>cache-ttl<input id="c-cache-ttl" type="number" min="0" placeholder="60" style="width:100%"></label>
+<label>rate-limit<input id="c-rate-limit" type="number" min="0" step="0.1" placeholder="5" style="width:100%"></label>
 <label>fields<input id="c-fields" type="text" placeholder="id,name" style="width:100%"></label>
 <label>redact<input id="c-redact" type="text" placeholder="password,token" style="width:100%"></label>
-<label>retry<input id="c-retry" type="number" min="0" style="width:100%"></label>
-<label>timeout<input id="c-timeout" type="number" min="1" style="width:100%"></label>
-<label>wait-on-429<input id="c-wait-on-429" type="number" min="0" style="width:100%"></label>
+<label>retry<input id="c-retry" type="number" min="0" placeholder="2" style="width:100%"></label>
+<label>retry-delay<input id="c-retry-delay" type="number" min="0" step="0.5" placeholder="1" style="width:100%"></label>
+<label>timeout<input id="c-timeout" type="number" min="1" placeholder="30" style="width:100%"></label>
+<label>wait-on-429<input id="c-wait-on-429" type="number" min="0" placeholder="30" style="width:100%"></label>
 </div>
 <label><input type="checkbox" id="c-read-only" style="width:auto"> read-only</label>
 <label><input type="checkbox" id="c-lazy" style="width:auto"> lazy mode</label>
@@ -161,7 +162,7 @@ $("health").innerHTML=h.apis.map(a=>`<div><span class="dot ${a.api_reachable?"ok
 $("charts").innerHTML=h.apis.map((a,i)=>`<div style="margin-top:8px"><span class="kv">${esc(a.api)} latency</span>
 <canvas id="sp${i}" width="330" height="56"></canvas></div>`).join("");
 h.apis.forEach((a,i)=>spark("sp"+i,(STATE.health_history[a.api]||[]).slice(-40)));}
-const c=STATE.config_defaults||{};["spec","base-url","auth-env","format","cache-ttl","retry","timeout","wait-on-429","fields","redact","rate-limit"]
+const c=STATE.config_defaults||{};["spec","base-url","auth-env","format","cache-ttl","retry","retry-delay","timeout","wait-on-429","fields","redact","rate-limit"]
 .forEach(k=>{const el=$("c-"+k);if(el&&document.activeElement!==el)el.value=c[k]??""});
 $("c-read-only").checked=!!(c["read-only"]);$("c-lazy").checked=!!c.lazy;
 $("cfgpath").textContent=STATE.config_path?("· "+STATE.config_path):"";}
@@ -176,6 +177,7 @@ refresh()});
 $("save").addEventListener("click",async()=>{
 const body={spec:$("c-spec").value,"base-url":$("c-base-url").value,"auth-env":$("c-auth-env").value,
 format:$("c-format").value,"cache-ttl":+$("c-cache-ttl").value||0,retry:+$("c-retry").value||0,
+"retry-delay":+$("c-retry-delay").value||0,
 "rate-limit":+$("c-rate-limit").value||0,"fields":$("c-fields").value,"redact":$("c-redact").value,
 timeout:+$("c-timeout").value||0,"wait-on-429":+$("c-wait-on-429").value||0,
 "read-only":$("c-read-only").checked,lazy:$("c-lazy").checked};

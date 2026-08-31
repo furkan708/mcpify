@@ -2,7 +2,7 @@
 
 # mcpify
 
-[![Tests](https://img.shields.io/badge/tests-478%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-490%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CI](https://github.com/furkan708/mcpify/actions/workflows/ci.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
 [![PyPI](https://img.shields.io/pypi/v/mcpify-openapi)](https://pypi.org/project/mcpify-openapi/)
@@ -31,7 +31,7 @@ uvx --from mcpify-openapi mcpify list examples/petstore.json --cost
 
 Focused, production-ready, CLI-first: one job (OpenAPI → MCP), with the
 governance, token economics and operations around it that real deployments
-need. 478 tests across twenty-seven suites, two transports (stdio + HTTP
+need. 490 tests across twenty-seven suites, two transports (stdio + HTTP
 with SSE responses), dual MCP-spec compatibility, split read/write
 credentials (static and OAuth2), a policy layer, ETag-aware caching, safe
 retries, health probes, an audit trail, per-token tool RBAC and plugin
@@ -292,7 +292,8 @@ mcpify try <spec> [same serve flags]        # interactive REPL, no agent needed
 mcpify output-server <spec> -o FILE [-- <any serve flags>]
 mcpify ui <spec> [same serve flags]         # local dashboard (tool explorer, health, config)
 mcpify mock <spec> [--http 8000] [--delay-ms N]
-mcpify diff OLD NEW [--json] [--fail-on-breaking]   # spec upgrade report + CI gate
+mcpify diff OLD NEW [--json] [--fail-on-breaking]        # upgrade report + CI gate
+mcpify diff OLD NEW --probe [--auth-env V]               # ...+ live check of the NEW API + cost delta
 mcpify config-schema                        # JSON Schema for .mcpify.toml (editor wiring)
 mcpify doctor <spec> [--probe --auth-env V --fail-on-http-error]   # static audit + live pre-flight / CI gate
 
@@ -348,7 +349,7 @@ Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHEC
 
 ## Tests
 
-**478 passing**, plus one live-integration test that loads the real
+**490 passing**, plus one live-integration test that loads the real
 api.weather.gov document (auto-skipped when offline) and an OTel positive
 test that runs wherever the optional tracing extra is installed. Every
 suite runs on Python 3.10–3.12 across Linux and Windows; `ruff`, strict
@@ -382,6 +383,7 @@ suite runs on Python 3.10–3.12 across Linux and Windows; `ruff`, strict
 | External `$ref` bundling | 6 | file + URL-base targets inlined, component-only target files, nested refs resolved relative to their own file, missing targets skipped, circular refs survive, same-document refs untouched |
 | Governance: split keys, tool text, valid truncation | 21 | read-key/write-key per method over a live upstream (shared-identity default unchanged), style/name inheritance + explicit override, config `write-auth-*` keys in serve/envs/apis, `[tool-text]` override through `list --json`, unknown-tool warnings, validator errors, schema/keys parity, doctor instruction-like + overlong-description counts, oversized array → valid JSON with marker, object key-keeping, non-JSON fallback, error-prefix survival |
 | v1.13: cost, projection, SSE, OAuth2 write | 20 | surface pricing in JSON + human output, recursive projection with transparent envelopes (both rules pinned: the top-level-only first rule failed live), selected keys keep their arrays, SSE framing vs JSON clients, write-flow resolution + mutual exclusion with `--write-auth-env` |
+| v1.16: status policy, REPL session controls, diff probe + cost delta | 12 | policy (fields/redact/rate-limit) in multi-API JSON+human status and single-spec `policy:` line, `:redact`/`:fields` session set/show/clear over a live upstream (masking verified on the wire), diff surface-cost delta in JSON+human, `--probe` reachable/unreachable exit contract (2 on probe failure), form retry-delay float |
 | v1.15: auth-probe, strict gate, metrics, lazy pricing | 16 | probe with a real credential (401-without vs 200-with over a live local upstream), strict-mode verdicts, doctor CLI exit contract, projection/redaction Prometheus counters (values counted, fresh-session enable), count_redact_targets, lazy-surface pricing lines, `init --probe` reachable/unreachable, dashboard-form token keys (float coercion, unknown-key rejection) |
 | v1.14: redact, rate-limit, probe, multi list | 29 | masking at every level incl. error bodies and selected-key overlap, arrays masked in place, limiter slots with a fake clock, retry throttling, probe target selection + reachability exit contract, config `redact`/`rate-limit` in serve/apis/envs, per-upstream limiters, multi-API `list` + pricing |
 
@@ -397,9 +399,10 @@ pytest -v
 
 ## Roadmap
 
-The v1.6–1.15 roadmap is fully shipped. Possible future work (not
+The v1.6–1.16 roadmap is fully shipped. Possible future work (not
 promised): server-initiated SSE (a GET stream with sessions —
 deliberately out for a stateless transport).
+- [x] ~~`status` policy visibility, REPL `:redact`/`:fields`, `diff --probe` + cost delta, form examples~~ — shipped in v1.16.0
 - [x] ~~Authenticated `doctor --probe` + `--fail-on-http-error` CI gate, `init --probe`, projection/redaction metrics, lazy-surface pricing~~ — shipped in v1.15.0
 - [x] ~~`--redact`, `--rate-limit`, `doctor --probe`, lazy-search costs, multi-API `list`~~ — shipped in v1.14.0
 - [x] ~~OAuth2 write flow (`--write-oauth2-*`), `list --cost`, `--fields` projection, SSE POST responses~~ — shipped in v1.13.0
