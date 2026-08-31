@@ -155,7 +155,7 @@ def _load_yaml(path: Path) -> dict[str, Any]:
             f"{path.name} is YAML; install the optional extra: pip install 'mcpify[yaml]'"
         ) from err
     loader = getattr(yaml, "CSafeLoader", None) or yaml.SafeLoader  # libyaml C parser when built in
-    return yaml.load(path.read_text(encoding="utf-8"), Loader=loader) or {}  # noqa: S507/S506 — safe loaders only
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=loader) or {}  # noqa: S506 — safe loaders only
 
 
 def _load_json(path: Path) -> dict[str, Any]:
