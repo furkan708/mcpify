@@ -26,11 +26,10 @@ def _yaml_loader() -> type[Any]:
     time when PyYAML was built with libyaml. Without libyaml the pure-
     Python SafeLoader stays the fallback — behavior is identical either way.
     """
-    try:
-        from yaml import CSafeLoader as _Loader
-    except ImportError:
-        from yaml import SafeLoader as _Loader
-    return cast(type[Any], _Loader)
+    import yaml
+
+    loader = getattr(yaml, "CSafeLoader", None) or yaml.SafeLoader
+    return cast(type[Any], loader)
 
 
 def _load_document(source: str) -> dict[str, Any]:
