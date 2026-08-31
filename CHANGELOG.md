@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.1] - 2026-08-31
+
+### Fixed
+- **The published 1.17.0 artifact lagged main by two commits** — the
+  typecheck fix (YAML loader via `getattr`, required under `types-PyYAML`
+  stubs in CI's mypy-strict leg) and the README clarity pass landed right
+  after the tag, so the PyPI sdist shipped the stub-incompatible loader
+  variant and the old dense hero paragraph on its package page. Runtime
+  behavior was identical; this patch re-syncs the release with main so the
+  published artifact passes its own CI and PyPI shows the current README.
+
 ## [1.17.0] - 2026-08-31
 
 ### Fixed — the resilience release: upstream failures kill sessions elsewhere, not here
