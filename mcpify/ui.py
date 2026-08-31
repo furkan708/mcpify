@@ -114,6 +114,9 @@ details summary{cursor:pointer;color:var(--acc);font-size:12px}
 <label>auth-env<input id="c-auth-env" style="width:100%"></label>
 <label>format<select id="c-format"><option>auto</option><option>json</option><option>xml</option></select></label>
 <label>cache-ttl<input id="c-cache-ttl" type="number" min="0" style="width:100%"></label>
+<label>rate-limit<input id="c-rate-limit" type="number" min="0" step="0.1" style="width:100%"></label>
+<label>fields<input id="c-fields" type="text" placeholder="id,name" style="width:100%"></label>
+<label>redact<input id="c-redact" type="text" placeholder="password,token" style="width:100%"></label>
 <label>retry<input id="c-retry" type="number" min="0" style="width:100%"></label>
 <label>timeout<input id="c-timeout" type="number" min="1" style="width:100%"></label>
 <label>wait-on-429<input id="c-wait-on-429" type="number" min="0" style="width:100%"></label>
@@ -158,7 +161,7 @@ $("health").innerHTML=h.apis.map(a=>`<div><span class="dot ${a.api_reachable?"ok
 $("charts").innerHTML=h.apis.map((a,i)=>`<div style="margin-top:8px"><span class="kv">${esc(a.api)} latency</span>
 <canvas id="sp${i}" width="330" height="56"></canvas></div>`).join("");
 h.apis.forEach((a,i)=>spark("sp"+i,(STATE.health_history[a.api]||[]).slice(-40)));}
-const c=STATE.config_defaults||{};["spec","base-url","auth-env","format","cache-ttl","retry","timeout","wait-on-429"]
+const c=STATE.config_defaults||{};["spec","base-url","auth-env","format","cache-ttl","retry","timeout","wait-on-429","fields","redact","rate-limit"]
 .forEach(k=>{const el=$("c-"+k);if(el&&document.activeElement!==el)el.value=c[k]??""});
 $("c-read-only").checked=!!(c["read-only"]);$("c-lazy").checked=!!c.lazy;
 $("cfgpath").textContent=STATE.config_path?("· "+STATE.config_path):"";}
@@ -173,6 +176,7 @@ refresh()});
 $("save").addEventListener("click",async()=>{
 const body={spec:$("c-spec").value,"base-url":$("c-base-url").value,"auth-env":$("c-auth-env").value,
 format:$("c-format").value,"cache-ttl":+$("c-cache-ttl").value||0,retry:+$("c-retry").value||0,
+"rate-limit":+$("c-rate-limit").value||0,"fields":$("c-fields").value,"redact":$("c-redact").value,
 timeout:+$("c-timeout").value||0,"wait-on-429":+$("c-wait-on-429").value||0,
 "read-only":$("c-read-only").checked,lazy:$("c-lazy").checked};
 try{const r=await api("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -333,6 +337,7 @@ def make_ui_handler(
 _CONFIG_FORM_KEYS = (
     "spec", "base-url", "auth-env", "auth-style", "auth-name", "format",
     "cache-ttl", "retry", "retry-delay", "timeout", "wait-on-429",
+    "fields", "redact", "rate-limit",
 )
 
 
@@ -352,7 +357,7 @@ def write_config_from_form(form: dict[str, Any], config_path: str | Path | None)
             continue
         if value in (None, ""):
             continue
-        if key in ("cache-ttl", "retry", "retry-delay", "timeout", "wait-on-429"):
+        if key in ("cache-ttl", "retry", "retry-delay", "timeout", "wait-on-429", "rate-limit"):
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
                 raise ValueError(f"{key} must be a non-negative number")
             settings[key] = int(value) if key in ("cache-ttl", "retry") else float(value)

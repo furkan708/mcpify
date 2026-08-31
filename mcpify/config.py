@@ -335,6 +335,7 @@ _CONFIG_KEY_ORDER = [
     "read-only", "timeout", "cache-ttl", "retry", "retry-delay",
     "strict", "lazy", "enable-preview", "format", "log-file",
     "tag", "include", "exclude", "allow", "deny", "verbose",
+    "fields", "redact", "rate-limit",
 ]
 
 
@@ -343,6 +344,8 @@ def _fmt_toml(value: object) -> str:
         return "true" if value else "false"
     if isinstance(value, int):
         return str(value)
+    if isinstance(value, float):
+        return repr(value)
     if isinstance(value, list):
         return "[" + ", ".join(_toml_string(str(v)) for v in value) + "]"
     return _toml_string(str(value))

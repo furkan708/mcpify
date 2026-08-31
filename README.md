@@ -2,7 +2,7 @@
 
 # mcpify
 
-[![Tests](https://img.shields.io/badge/tests-462%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-478%20passed-brightgreen)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CI](https://github.com/furkan708/mcpify/actions/workflows/ci.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml/badge.svg)](https://github.com/furkan708/mcpify/actions/workflows/codeql.yml)
 [![PyPI](https://img.shields.io/pypi/v/mcpify-openapi)](https://pypi.org/project/mcpify-openapi/)
@@ -31,7 +31,7 @@ uvx --from mcpify-openapi mcpify list examples/petstore.json --cost
 
 Focused, production-ready, CLI-first: one job (OpenAPI → MCP), with the
 governance, token economics and operations around it that real deployments
-need. 462 tests across twenty-seven suites, two transports (stdio + HTTP
+need. 478 tests across twenty-seven suites, two transports (stdio + HTTP
 with SSE responses), dual MCP-spec compatibility, split read/write
 credentials (static and OAuth2), a policy layer, ETag-aware caching, safe
 retries, health probes, an audit trail, per-token tool RBAC and plugin
@@ -44,7 +44,7 @@ hooks back that one job.
 - **60 seconds to working** — point it at any OpenAPI 3.x spec (file or URL)
 - **Every operation becomes a first-class MCP tool** — input schemas are generated from `parameters` + `requestBody`, internal `$ref`s are resolved
 - **Spec versions diffed from the tool view** — `mcpify diff old.yaml new.yaml` reports added/removed/changed operations with per-change **breaking** verdicts and a migration guide; `--fail-on-breaking` is a CI gate
-- **`mcpify doctor`** — tells you if your spec is agent-friendly before you ship: missing operationIds, missing summaries, instruction-like tool text, overlong descriptions; `--probe` dials the API once for a live pre-flight before you serve
+- **`mcpify doctor`** — tells you if your spec is agent-friendly before you ship: missing operationIds, missing summaries, instruction-like tool text, overlong descriptions; `--probe` dials the API once — with your real credential (`--auth-env`) when you want auth proven end-to-end, and `--fail-on-http-error` for a strict CI gate
 - **`mcpify try` / `mcpify mock` / `mcpify output-server`** — call the tools without an agent client, serve a schema-shaped fake API for CI, or bake a serve command into a shareable script
 
 **Credentials & policy**
@@ -68,7 +68,7 @@ hooks back that one job.
 - **Two transports, one tool surface** — stdio for local agents; `serve --http 8080` speaks MCP Streamable HTTP (SSE responses for clients that ask, JSON otherwise) so a whole team shares one server, with optional bearer tokens
 - **Several APIs, one MCP server** — `[apis.NAME]` sections in `.mcpify.toml`: per-API auth, caching, retries, filters and rate limits; collision-safe renames; aggregated health; `mcpify status` probes every API in parallel
 - **Upstream courtesy built in** — ETag-aware caching, idempotent-only retries (502/503/504), `--wait-on-429` honors Retry-After, `--rate-limit RPS` caps requests/second (per upstream in multi-API, retries included)
-- **Observability, opt-in only** — Prometheus `--metrics`, `--otel` spans, `--reload` hot swap, `mcpify ui` local dashboard
+- **Observability, opt-in only** — Prometheus `--metrics` (call counters, latencies, cache, health — plus projection/redaction counters when those run), `--otel` spans, `--reload` hot swap, `mcpify ui` local dashboard
 - **Host it yourself for free** — docker-compose with automatic-HTTPS Caddy plus a hardened systemd unit: [Self-hosting guide](docs/SELF-HOSTING.md)
 - **Zero runtime dependencies** — the entire tree is auditable stdlib Python; YAML specs need an optional `pip install 'mcpify[yaml]'`
 
@@ -280,6 +280,7 @@ probe:    GET /alerts → 200 reachable (2.80s)
 ```
 mcpify list <spec> [--tag T] [--include P] [--exclude P] [--read-only] [--json]
 mcpify list --cost                        # price the surface (~4 chars/token)
+mcpify list --cost --lazy                 # ...and the 3-meta-tool lazy surface
 mcpify list --config .mcpify.toml --cost  # multi-API: every surface priced
 mcpify serve <spec> [--base-url URL] [--server INDEX|NAME] [--name N] [--auth-env VAR]
                     [--auth-style bearer|header|query] [--auth-name NAME]
@@ -293,7 +294,7 @@ mcpify ui <spec> [same serve flags]         # local dashboard (tool explorer, he
 mcpify mock <spec> [--http 8000] [--delay-ms N]
 mcpify diff OLD NEW [--json] [--fail-on-breaking]   # spec upgrade report + CI gate
 mcpify config-schema                        # JSON Schema for .mcpify.toml (editor wiring)
-mcpify doctor <spec> [--probe --base-url URL --timeout S]   # agent-friendliness + live pre-flight
+mcpify doctor <spec> [--probe --auth-env V --fail-on-http-error]   # static audit + live pre-flight / CI gate
 
 # token economics: --fields id,name (projection), --redact password,token (masking),
 #   --rate-limit RPS (upstream courtesy, retries included)
@@ -347,7 +348,7 @@ Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHEC
 
 ## Tests
 
-**462 passing**, plus one live-integration test that loads the real
+**478 passing**, plus one live-integration test that loads the real
 api.weather.gov document (auto-skipped when offline) and an OTel positive
 test that runs wherever the optional tracing extra is installed. Every
 suite runs on Python 3.10–3.12 across Linux and Windows; `ruff`, strict
@@ -381,6 +382,7 @@ suite runs on Python 3.10–3.12 across Linux and Windows; `ruff`, strict
 | External `$ref` bundling | 6 | file + URL-base targets inlined, component-only target files, nested refs resolved relative to their own file, missing targets skipped, circular refs survive, same-document refs untouched |
 | Governance: split keys, tool text, valid truncation | 21 | read-key/write-key per method over a live upstream (shared-identity default unchanged), style/name inheritance + explicit override, config `write-auth-*` keys in serve/envs/apis, `[tool-text]` override through `list --json`, unknown-tool warnings, validator errors, schema/keys parity, doctor instruction-like + overlong-description counts, oversized array → valid JSON with marker, object key-keeping, non-JSON fallback, error-prefix survival |
 | v1.13: cost, projection, SSE, OAuth2 write | 20 | surface pricing in JSON + human output, recursive projection with transparent envelopes (both rules pinned: the top-level-only first rule failed live), selected keys keep their arrays, SSE framing vs JSON clients, write-flow resolution + mutual exclusion with `--write-auth-env` |
+| v1.15: auth-probe, strict gate, metrics, lazy pricing | 16 | probe with a real credential (401-without vs 200-with over a live local upstream), strict-mode verdicts, doctor CLI exit contract, projection/redaction Prometheus counters (values counted, fresh-session enable), count_redact_targets, lazy-surface pricing lines, `init --probe` reachable/unreachable, dashboard-form token keys (float coercion, unknown-key rejection) |
 | v1.14: redact, rate-limit, probe, multi list | 29 | masking at every level incl. error bodies and selected-key overlap, arrays masked in place, limiter slots with a fake clock, retry throttling, probe target selection + reachability exit contract, config `redact`/`rate-limit` in serve/apis/envs, per-upstream limiters, multi-API `list` + pricing |
 
 Policy on failures: every bug found in the wild becomes a pinned
@@ -395,9 +397,10 @@ pytest -v
 
 ## Roadmap
 
-The v1.6–1.14 roadmap is fully shipped. Possible future work (not
+The v1.6–1.15 roadmap is fully shipped. Possible future work (not
 promised): server-initiated SSE (a GET stream with sessions —
 deliberately out for a stateless transport).
+- [x] ~~Authenticated `doctor --probe` + `--fail-on-http-error` CI gate, `init --probe`, projection/redaction metrics, lazy-surface pricing~~ — shipped in v1.15.0
 - [x] ~~`--redact`, `--rate-limit`, `doctor --probe`, lazy-search costs, multi-API `list`~~ — shipped in v1.14.0
 - [x] ~~OAuth2 write flow (`--write-oauth2-*`), `list --cost`, `--fields` projection, SSE POST responses~~ — shipped in v1.13.0
 - [x] ~~Read/write credential split, tool-text overrides, doctor prompt-hygiene audit, structure-aware truncation~~ — shipped in v1.12.0

@@ -6,6 +6,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-08-31
+
+### Added — pre-flight that proves things, and counters that show it
+- **Authenticated `doctor --probe`:** `--auth-env/--auth-style/--auth-name`
+  attach the real credential to the probe request — prove auth works
+  END-TO-END before serving, not just that the host answers. Live:
+  `GET /alerts → 200 reachable (0.26s, authenticated)` against
+  api.weather.gov (User-Agent credential).
+- **`--fail-on-http-error` (CI gate):** by default any HTTP status proves
+  reachability (a 401 without credentials is a working API); the strict
+  flag counts 4xx/5xx as a failed pre-flight and exits 1. Verified
+  against petstore3's genuinely broken upstream: strict gate exits 1 on
+  the 500, tolerant default still reports reachable.
+- **`init --probe`:** after the wizard writes the config, one live probe
+  against the configured API with the configured credential; unreachable
+  exits 1. The pre-flight is part of setup, not an afterthought.
+- **Projection/redaction metrics:** `mcpify_projection_responses_total{api}`
+  and `mcpify_redactions_total{api}` (masked VALUES counted) join the
+  Prometheus surface — see the masking earning its keep. `metrics.enable()`
+  now starts a fresh session (a stray enable without its disable can no
+  longer poison the next session with stale counters — found by test
+  pollution, fixed at the source).
+- **Lazy-surface pricing:** `mcpify list --cost --lazy` prices the three
+  meta tools beside the full surface. Live weather.gov: ~291 tokens vs
+  ~6,900 — the 96% lever, quantified.
+- **Dashboard form:** `fields`, `redact`, `rate-limit` join the config
+  form (validated writer, floats serialize as numbers). `build_meta_tools`
+  is a module-level function now (single source for the lazy surface).
+- 16 new tests — **478 passing** across twenty-seven suites.
+
 ## [1.14.0] - 2026-08-31
 
 ### Added — secrets, courtesy, and pre-flight

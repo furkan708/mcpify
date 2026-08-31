@@ -943,15 +943,46 @@ API: `rate-limit = 2.5`.
 
 ```bash
 mcpify doctor spec.yaml --probe --base-url https://api.example.com
+
+# prove the credential works end-to-end, not just that the host answers
+mcpify doctor spec.yaml --probe --auth-env MY_KEY
+
+# CI gate: 4xx/5xx count as failure (default counts only connection failures)
+mcpify doctor spec.yaml --probe --auth-env MY_KEY --fail-on-http-error
 ```
 
 After the static report, mcpify performs one argument-free GET (or the
 base URL when every GET needs arguments) and reports reachability. Any
 HTTP status proves the API is up — a 401 with no credentials configured
 is a working API; only a connection failure exits non-zero, so CI and
-shell scripts stop before serving something that cannot answer.
-`--json` includes the probe payload (`probe.status`,
-`probe.latency_seconds`).
+shell scripts stop before serving something that cannot answer. With
+`--auth-env` the probe carries your real credential (style auto-detected
+from the spec, or `--auth-style/--auth-name`); the report is tagged
+`authenticated`. `--fail-on-http-error` treats 4xx/5xx as a failed
+pre-flight for pipelines. `--json` includes the probe payload
+(`probe.status`, `probe.authenticated`, `probe.latency_seconds`).
+
+### `init --probe` — the pre-flight is part of setup
+
+```bash
+mcpify init --probe
+```
+
+After the wizard writes `.mcpify.toml`, mcpify runs one live probe
+against the configured API with the configured credential. Unreachable
+exits 1 — you learn the credential or URL is wrong in the same minute
+you write the config, not on the first agent call.
+
+### `mcpify list --cost --lazy` — price the lazy lever too
+
+```bash
+mcpify list big-api.json --cost --lazy
+```
+
+Beside the full-surface price, prints what the lazy mode costs: three
+meta tools (search / get_tool_schema / call_tool) replace the whole
+listing. Live api.weather.gov: ~291 tokens vs ~6,900 — a 96% cut,
+quantified before you choose.
 
 ### `mcpify list` over a config — every surface, one run
 

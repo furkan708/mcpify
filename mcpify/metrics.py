@@ -36,10 +36,17 @@ BUCKETS: tuple[float, ...] = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5
 
 
 def enable() -> None:
-    """Turn on recording (idempotent)."""
+    """Start a FRESH recording session (idempotent, clears leftovers).
+
+    Tests enable/disable around assertions; a stray enable without its
+    disable must not poison the next session with stale counters."""
     global _enabled
     with _lock:
         _enabled = True
+        _counters.clear()
+        _gauges.clear()
+        _histograms.clear()
+        _meta.clear()
         _declare("mcpify_up", "1 when the server process is serving.", "gauge")
         _declare("mcpify_uptime_seconds", "Seconds since the process started serving.", "gauge")
         _declare("mcpify_tools", "Tools currently listed by the server.", "gauge")
@@ -52,6 +59,16 @@ def enable() -> None:
         _declare(
             "mcpify_cache_requests_total",
             "GET cache lookups. result=hit|miss (only when --cache-ttl is on).",
+            "counter",
+        )
+        _declare(
+            "mcpify_projection_responses_total",
+            "Responses passed through --fields projection (only when --fields is on).",
+            "counter",
+        )
+        _declare(
+            "mcpify_redactions_total",
+            "Values masked by --redact (only when --redact is on).",
             "counter",
         )
         _declare(

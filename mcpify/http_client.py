@@ -477,6 +477,21 @@ def redact_json(data: Any, secrets: frozenset[str]) -> Any:
     return data
 
 
+def count_redact_targets(data: Any, secrets: frozenset[str]) -> int:
+    """How many values redact_json() would mask — for metrics, before masking."""
+    if not secrets:
+        return 0
+    if isinstance(data, dict):
+        return sum(
+            (1 if key.lower() in secrets and value is not None else 0)
+            + count_redact_targets(value, secrets)
+            for key, value in data.items()
+        )
+    if isinstance(data, list):
+        return sum(count_redact_targets(item, secrets) for item in data)
+    return 0
+
+
 def _smart_truncate(body: str, limit: int) -> str:
     """Shrink an oversized body WITHOUT handing the model broken syntax.
 

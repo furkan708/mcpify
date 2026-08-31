@@ -32,6 +32,7 @@ from .http_client import (
     OAuth2ClientCredentials,
     RateLimiter,
     ResponseCache,
+    count_redact_targets,
     execute,
     format_result,
     project_json,
@@ -80,6 +81,104 @@ def _annotations(read_only: bool, open_world: bool, destructive: bool, idempoten
     )
     return out
 
+
+def build_meta_tools() -> list[dict[str, Any]]:
+    search = {
+        "name": SEARCH_TOOL,
+        "description": (
+            "Search the API's tools by keyword (matches names, paths, "
+            "summaries and tags). Returns compact entries — use "
+            f"{SCHEMA_TOOL} for a full schema before calling."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "space-separated keywords"},
+                "tag": {"type": "string", "description": "exact tag filter (case-insensitive)"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 25, "default": 10},
+            },
+            "required": [],
+        },
+        "annotations": _annotations(True, False, False, True, "Search API tools"),
+        "_local": True,
+    }
+    schema_tool = {
+        "name": SCHEMA_TOOL,
+        "description": (
+            "Get the full definition of one tool: input schema, annotations "
+            "and output schema. Call this before invoking a tool the first time."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"name": {"type": "string", "description": "tool name from search"}},
+            "required": ["name"],
+        },
+        "annotations": _annotations(True, False, False, True, "Get tool schema"),
+        "_local": True,
+    }
+    call = {
+        "name": CALL_TOOL,
+        "description": (
+            "Execute one of the API's tools by name with the given arguments. "
+            "Honest hints: this can reach write and destructive endpoints — "
+            "check the target tool's annotations (from "
+            f"{SCHEMA_TOOL}) before calling."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "tool name from search"},
+                "arguments": {"type": "object", "description": "arguments for the target tool"},
+            },
+            "required": ["name"],
+        },
+        "annotations": _annotations(False, True, True, False, "Execute API tool"),
+        "_local": True,
+    }
+    preview = {
+        "name": PREVIEW_TOOL,
+        "description": (
+            "Dry run: show the exact HTTP request (method, URL, headers, "
+            "body) that a tool call would produce — nothing is sent. "
+            "Credentials are masked."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "tool name"},
+                "arguments": {"type": "object", "description": "arguments to preview"},
+            },
+            "required": ["name"],
+        },
+        "annotations": _annotations(True, False, False, True, "Preview request"),
+        "_local": True,
+    }
+    health = {
+        "name": HEALTH_TOOL,
+        "description": (
+            "Check that the upstream API is reachable and report this "
+            "server's own configuration (tool count, cache, retry, auth)."
+        ),
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
+        "annotations": _annotations(True, False, False, True, "Health check"),
+        "_local": True,
+    }
+    invalidate = {
+        "name": INVALIDATE_TOOL,
+        "description": (
+            "Clear cached GET responses. With no arguments clears the whole "
+            "cache; pass 'path' to drop only entries whose URL contains it. "
+            "Only available when response caching is enabled."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"path": {"type": "string", "description": "drop only matching entries"}},
+            "required": [],
+        },
+        "annotations": _annotations(False, False, True, True, "Clear response cache"),
+        "_local": True,
+    }
+    return [search, schema_tool, call, preview, health, invalidate]
 
 class ApiServer:
     """MCP handler backed by one OpenAPI specification."""
@@ -143,7 +242,7 @@ class ApiServer:
         self.response_format = response_format
         # dashboard config-form defaults ([serve] values when run via CLI)
         self.ui_config_defaults: dict[str, Any] = {}
-        self.meta_tools: dict[str, dict[str, Any]] = {t["name"]: t for t in self._build_meta_tools()}
+        self.meta_tools: dict[str, dict[str, Any]] = {t["name"]: t for t in build_meta_tools()}
         if lazy:
             listed = [SEARCH_TOOL, SCHEMA_TOOL, CALL_TOOL]
         else:
@@ -159,103 +258,6 @@ class ApiServer:
         self._initialized = False
 
     # -- meta tool descriptors -------------------------------------------
-    def _build_meta_tools(self) -> list[dict[str, Any]]:
-        search = {
-            "name": SEARCH_TOOL,
-            "description": (
-                "Search the API's tools by keyword (matches names, paths, "
-                "summaries and tags). Returns compact entries — use "
-                f"{SCHEMA_TOOL} for a full schema before calling."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "space-separated keywords"},
-                    "tag": {"type": "string", "description": "exact tag filter (case-insensitive)"},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": 25, "default": 10},
-                },
-                "required": [],
-            },
-            "annotations": _annotations(True, False, False, True, "Search API tools"),
-            "_local": True,
-        }
-        schema_tool = {
-            "name": SCHEMA_TOOL,
-            "description": (
-                "Get the full definition of one tool: input schema, annotations "
-                "and output schema. Call this before invoking a tool the first time."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {"name": {"type": "string", "description": "tool name from search"}},
-                "required": ["name"],
-            },
-            "annotations": _annotations(True, False, False, True, "Get tool schema"),
-            "_local": True,
-        }
-        call = {
-            "name": CALL_TOOL,
-            "description": (
-                "Execute one of the API's tools by name with the given arguments. "
-                "Honest hints: this can reach write and destructive endpoints — "
-                "check the target tool's annotations (from "
-                f"{SCHEMA_TOOL}) before calling."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "tool name from search"},
-                    "arguments": {"type": "object", "description": "arguments for the target tool"},
-                },
-                "required": ["name"],
-            },
-            "annotations": _annotations(False, True, True, False, "Execute API tool"),
-            "_local": True,
-        }
-        preview = {
-            "name": PREVIEW_TOOL,
-            "description": (
-                "Dry run: show the exact HTTP request (method, URL, headers, "
-                "body) that a tool call would produce — nothing is sent. "
-                "Credentials are masked."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "tool name"},
-                    "arguments": {"type": "object", "description": "arguments to preview"},
-                },
-                "required": ["name"],
-            },
-            "annotations": _annotations(True, False, False, True, "Preview request"),
-            "_local": True,
-        }
-        health = {
-            "name": HEALTH_TOOL,
-            "description": (
-                "Check that the upstream API is reachable and report this "
-                "server's own configuration (tool count, cache, retry, auth)."
-            ),
-            "inputSchema": {"type": "object", "properties": {}, "required": []},
-            "annotations": _annotations(True, False, False, True, "Health check"),
-            "_local": True,
-        }
-        invalidate = {
-            "name": INVALIDATE_TOOL,
-            "description": (
-                "Clear cached GET responses. With no arguments clears the whole "
-                "cache; pass 'path' to drop only entries whose URL contains it. "
-                "Only available when response caching is enabled."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {"path": {"type": "string", "description": "drop only matching entries"}},
-                "required": [],
-            },
-            "annotations": _annotations(False, False, True, True, "Clear response cache"),
-            "_local": True,
-        }
-        return [search, schema_tool, call, preview, health, invalidate]
 
     # -- public API used by the CLI --------------------------------------
     @property
@@ -373,10 +375,15 @@ class ApiServer:
             projected = project_json(result["json"], wanted)
             result = {**result, "json": projected,
                       "body": json.dumps(projected, ensure_ascii=False)}
+            metrics.inc("mcpify_projection_responses_total",
+                        {"api": str(tool.get("api", self.server_name))})
         secrets = context.get("redact")
         if secrets and result.get("json") is not None:
             # runs on success AND error bodies, after projection: whatever
             # the model is about to read, secrets never survive to it
+            metrics.inc("mcpify_redactions_total",
+                        {"api": str(tool.get("api", self.server_name))},
+                        count_redact_targets(result["json"], secrets))
             masked = redact_json(result["json"], secrets)
             result = {**result, "json": masked,
                       "body": json.dumps(masked, ensure_ascii=False)}

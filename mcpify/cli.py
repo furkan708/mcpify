@@ -20,6 +20,8 @@ from .spec import SpecError, discover_spec, iter_operations, load_spec, spec_ser
 from .tools import AuthConfig, spec_to_tools
 
 if TYPE_CHECKING:
+    from types import SimpleNamespace
+
     from .http_client import OAuth2ClientCredentials
 
 USE_COLOR = (
@@ -693,7 +695,7 @@ def _auth_hint(spec: dict[str, Any] | None) -> str | None:
     return f"--auth-env API_KEY --auth-style query --auth-name {detected['name']}"
 
 
-def _resolve_auth(args: argparse.Namespace, spec: dict[str, Any] | None = None) -> AuthConfig | OAuth2ClientCredentials | None:
+def _resolve_auth(args: argparse.Namespace | SimpleNamespace, spec: dict[str, Any] | None = None) -> AuthConfig | OAuth2ClientCredentials | None:
     """Build the auth provider from flags. OAuth2 (client-credentials) and
     the static --auth-env credential are mutually exclusive modes. With
     --auth-env and no explicit style, the spec's security declarations
@@ -783,49 +785,19 @@ def _run_output_server(rest: list[str]) -> None:
 
 
 def _pick_probe_operation(spec: dict[str, Any]) -> tuple[str, str] | None:
-    """First safe GET for --probe: no path params, no required params, no body."""
-    for method, path, operation in iter_operations(spec):
-        if method != "GET" or "{" in path or operation.get("requestBody"):
-            continue
-        params = list(operation.get("parameters") or [])
-        if any(param.get("required") for param in params):
-            continue
-        return method, path
-    return None
+    """Backward-compat alias; the implementation lives in mcpify.probe."""
+    from .probe import pick_probe_operation
+
+    return pick_probe_operation(spec)
 
 
-def _doctor_probe(spec: dict[str, Any], base_url: str | None, timeout: float) -> dict[str, Any]:
-    """One live GET against the API: connectivity proof before you serve.
+def _doctor_probe(spec: dict[str, Any], base_url: str | None, timeout: float,
+                  auth: Any = None, fail_on_http_error: bool = False) -> dict[str, Any]:
+    """Backward-compat alias; the implementation lives in mcpify.probe."""
+    from .probe import run_probe
 
-    Any HTTP status proves reachability (a 401 with no credentials is a
-    working API); only a connection failure — or having nothing to probe —
-    is a failed pre-flight. Read-only by construction: argument-free GET
-    or the base URL.
-    """
-    from .http_client import execute
-
-    if not base_url:
-        return {"ok": False, "error": "no absolute base URL — pass --base-url"}
-    base_url = base_url.rstrip("/")
-    picked = _pick_probe_operation(spec)
-    if picked is not None:
-        method, path = picked
-        url = base_url + path
-    else:
-        method, path = "GET", "/"
-        url = base_url + "/"
-    started = time.monotonic()
-    result = execute(
-        {"method": method, "url": url, "headers": {"Accept": "application/json"}, "body": None},
-        timeout=timeout,
-    )
-    latency = time.monotonic() - started
-    status = int(result["status"])
-    out = {"ok": status != 0, "method": method, "path": path, "url": url,
-           "status": status, "latency_seconds": round(latency, 3)}
-    if status == 0:
-        out["error"] = "connection failed — check the URL, network and TLS"
-    return out
+    return run_probe(spec, base_url, timeout, auth=auth,
+                     fail_on_http_error=fail_on_http_error)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -858,6 +830,8 @@ def main(argv: list[str] | None = None) -> None:
                         help="estimate the context cost of the surface (~4 chars/token) — "
                         "the price every agent pays in every tools/list")
     p_list.add_argument("--json", action="store_true", help="machine-readable output")
+    p_list.add_argument("--lazy", action="store_true",
+                        help="with --cost: also price the lazy (search-then-call) surface")
     p_list.add_argument("--config", help="config file (auto-discovers .mcpify.toml/.yaml/.json in cwd when omitted)")
 
     p_serve = sub.add_parser("serve", help="start the MCP server on stdio (or --http for Streamable HTTP)")
@@ -883,6 +857,9 @@ def main(argv: list[str] | None = None) -> None:
 
     p_init = sub.add_parser("init", help="interactive wizard that writes a .mcpify.toml config")
     p_init.add_argument("--config", default=".mcpify.toml", help="config file to write (default: .mcpify.toml)")
+    p_init.add_argument("--probe", action="store_true",
+                        help="after writing the config, run a live pre-flight probe against the "
+                        "configured API (with the configured credential); exits 1 when unreachable")
     p_init.add_argument("--spec", help="prefill the spec path/URL (skips that question)")
     p_init.add_argument("--base-url", help="prefill the base URL (skips that question)")
 
@@ -925,6 +902,14 @@ def main(argv: list[str] | None = None) -> None:
                           "operation against the API and report reachability")
     p_doctor.add_argument("--base-url", default=None, help="override the base URL to probe")
     p_doctor.add_argument("--timeout", type=float, default=10.0, help="probe timeout seconds")
+    p_doctor.add_argument("--auth-env", default=None,
+                          help="probe WITH the credential (env variable) — proves auth works "
+                          "end-to-end before you serve, not just that the host answers")
+    p_doctor.add_argument("--auth-style", default=None, help="bearer|basic|header|query (auto-detected when omitted)")
+    p_doctor.add_argument("--auth-name", default=None, help="header/query name for non-bearer styles")
+    p_doctor.add_argument("--fail-on-http-error", action="store_true",
+                          help="CI gate: 4xx/5xx probe responses count as a failed pre-flight "
+                          "(exit 1); default counts only connection failures")
 
     args = parser.parse_args(argv)
     tools: list[dict[str, Any]] = []  # status computes its own count
@@ -1073,6 +1058,15 @@ def main(argv: list[str] | None = None) -> None:
                 cost = f" {dim(f'~{tool_cost_tokens(tool)} tok')}" if want_cost else ""
                 print(f"  {'':36} {dim(desc[:90])}{cost}")
         print(dim("─" * 78))
+        if want_cost and getattr(args, "lazy", False):
+            from .api_server import CALL_TOOL, SCHEMA_TOOL, SEARCH_TOOL, build_meta_tools
+
+            listed_names = {SEARCH_TOOL, SCHEMA_TOOL, CALL_TOOL}
+            listed_meta = [m for m in build_meta_tools() if m["name"] in listed_names]
+            lazy_total = surface_cost_tokens(listed_meta)
+            total_now = surface_cost_tokens(tools)
+            print(dim(f"lazy surface: ~{lazy_total:,} tokens — three meta tools replace "
+                      f"the full list (full surface: ~{total_now:,} tokens); enable with --lazy"))
         if want_cost:
             total = surface_cost_tokens(tools)
             print(dim(f"surface cost: ~{total:,} tokens (~{total * 4 / 1024:.0f} KB) — "
@@ -1410,6 +1404,28 @@ def main(argv: list[str] | None = None) -> None:
         Path(args.config).write_text(build_config_document(ayarlar), encoding="utf-8")
         print(f"wrote {args.config}")
         print(f"next: mcpify serve --config {args.config}   (or just: mcpify serve)")
+        if getattr(args, "probe", False):
+            from types import SimpleNamespace
+
+            from .probe import run_probe
+
+            spec_arg = ayarlar.get("spec")
+            if not spec_arg:
+                _fail("init --probe: the wizard did not record a spec")
+            probe_spec = load_spec(spec_arg)
+            probe_base = ayarlar.get("base-url") or _base_url(probe_spec, None)
+            auth = _resolve_auth(SimpleNamespace(
+                auth_env=ayarlar.get("auth-env"), auth_style=ayarlar.get("auth-style"),
+                auth_name=ayarlar.get("auth-name"), oauth2_token_url=None,
+            ), probe_spec)
+            report = run_probe(probe_spec, probe_base, 10.0, auth=auth)
+            if report["ok"]:
+                print(f"probe:    {report['method']} {report['path']} → {report['status']} "
+                      f"reachable ({report['latency_seconds']:.2f}s"
+                      + (", authenticated" if report.get("authenticated") else "") + ")")
+            else:
+                print(f"probe:    {report.get('error', 'failed')}", file=sys.stderr)
+                sys.exit(1)
 
     elif args.command == "status" and api_sections(config_data):
         entries = _build_entries(args, config_data)
@@ -1560,7 +1576,9 @@ def main(argv: list[str] | None = None) -> None:
         if args.probe:
             probe_base = args.base_url or next(
                 (s for s in servers if s.startswith(("http://", "https://"))), None)
-            probe_report = _doctor_probe(spec, probe_base, args.timeout)
+            probe_report = _doctor_probe(spec, probe_base, args.timeout,
+                                         auth=_resolve_auth(args, spec),
+                                         fail_on_http_error=args.fail_on_http_error)
         if args.json:
             payload = {
                 "ok": not warnings,
@@ -1616,12 +1634,15 @@ def main(argv: list[str] | None = None) -> None:
         if args.probe:
             probe_base = args.base_url or next(
                 (s for s in servers if s.startswith(("http://", "https://"))), None)
-            report = _doctor_probe(spec, probe_base, args.timeout)
+            report = _doctor_probe(spec, probe_base, args.timeout,
+                                   auth=_resolve_auth(args, spec),
+                                   fail_on_http_error=args.fail_on_http_error)
             probe_ok = bool(report["ok"])
             if report["ok"]:
                 verdict = ok("reachable") if 200 <= report["status"] < 400 else warn(f"HTTP {report['status']}")
+                tag = ", authenticated" if report.get("authenticated") else ""
                 print(f"probe:    {report['method']} {report['path']} → {report['status']} {verdict} "
-                      f"({report['latency_seconds']:.2f}s)")
+                      f"({report['latency_seconds']:.2f}s{tag})")
             else:
                 print(warn(f"probe:    {report.get('error', 'failed')}"))
 
