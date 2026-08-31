@@ -1596,12 +1596,17 @@ def main(argv: list[str] | None = None) -> None:
         total = 0
         missing_id = 0
         no_summary = 0
+        seen_ids: dict[str, int] = {}
         for _method, _path, operation in iter_operations(spec):
             total += 1
-            if not operation.get("operationId"):
+            op_id = operation.get("operationId")
+            if op_id:
+                seen_ids[op_id] = seen_ids.get(op_id, 0) + 1
+            else:
                 missing_id += 1
             if not (operation.get("summary") or operation.get("description")):
                 no_summary += 1
+        duplicate_ids = sum(count - 1 for count in seen_ids.values() if count > 1)
         servers = spec_servers(spec)
         variabled = [s for s in servers if "{" in s]
         security = ((spec.get("components") or {}).get("securitySchemes") or {})
@@ -1619,6 +1624,9 @@ def main(argv: list[str] | None = None) -> None:
         warnings = []
         if missing_id:
             warnings.append(f"{missing_id}/{total} operations have no operationId")
+        if duplicate_ids:
+            warnings.append(f"{duplicate_ids} duplicate operationId(s) — tools get _2/_3 "
+                            "suffixes; rename them in the spec for clearer tool names")
         if no_summary:
             warnings.append(f"{no_summary}/{total} operations have no summary")
         if variabled:
@@ -1659,6 +1667,7 @@ def main(argv: list[str] | None = None) -> None:
                 "ok": not warnings,
                 "operations": total,
                 "missing_operation_id": missing_id,
+                "duplicate_operation_ids": duplicate_ids,
                 "missing_summary": no_summary,
                 "warnings": warnings,
                 "instruction_like_text": instruction_like,
@@ -1681,6 +1690,8 @@ def main(argv: list[str] | None = None) -> None:
             print(dim(f"tip:      {len(servers)} servers declared — pick one with --server INDEX|NAME (e.g. --server 2)"))
         if missing_id:
             print(warn(f"warning: {missing_id}/{total} operations have no operationId (names fall back to method_path)"))
+        if duplicate_ids:
+            print(warn(f"warning: {duplicate_ids} duplicate operationId(s) — suffixed _2/_3 (rename in the spec for clearer tool names)"))
         if no_summary:
             print(warn(f"warning: {no_summary}/{total} operations have no summary (agents see no description)"))
         if variabled:

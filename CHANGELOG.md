@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.1] - 2026-08-31
+
+### Fixed
+- **doctor counts duplicate operationIds.** Duplicate `operationId`s never
+  shadow each other (first keeps the name, the next gets `_2`/`_3` with
+  its own parameters and schemas) — but nothing told the spec author WHY
+  a tool was called `getusers_2`. `doctor` now reports the duplicate
+  count and suggests renaming; `--json` carries
+  `duplicate_operation_ids`. Prompted by a sharp question on r/mcp.
+
 ## [1.16.0] - 2026-08-31
 
 ### Added — visibility everywhere the policy already runs

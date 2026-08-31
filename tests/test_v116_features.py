@@ -226,3 +226,54 @@ def test_form_examples_present_in_html():
     assert 'placeholder="openapi.json | https://api.example.com/openapi.json"' in html
     assert 'placeholder="MY_API_KEY"' in html
     assert "c-retry-delay" in html
+
+
+# ---------------------------------------------------------------------------
+# v1.16.1 patch: doctor counts duplicate operationIds (asked on r/mcp)
+# ---------------------------------------------------------------------------
+
+DUP_SPEC = {
+    "openapi": "3.0.0",
+    "info": {"title": "T", "version": "1"},
+    "servers": [{"url": "http://api.example.com"}],
+    "paths": {
+        "/v1/users/{id}": {"get": {"operationId": "getUsers", "summary": "v1",
+                                   "parameters": [{"name": "id", "in": "path", "required": True,
+                                                   "schema": {"type": "string"}}],
+                                   "responses": {"200": {"description": "ok"}}}},
+        "/v2/users/{id}": {"get": {"operationId": "getUsers", "summary": "v2",
+                                   "parameters": [{"name": "id", "in": "path", "required": True,
+                                                   "schema": {"type": "string"}}],
+                                   "responses": {"200": {"description": "ok"}}}},
+    },
+}
+
+
+def test_duplicate_operation_ids_get_suffixes(tmp_path):
+    from mcpify.tools import spec_to_tools
+
+    path = tmp_path / "dup.json"
+    path.write_text(json.dumps(DUP_SPEC))
+    tools = spec_to_tools(load_spec(str(path)))
+    names = sorted(tool["name"] for tool in tools)
+    assert names == ["getusers", "getusers_2"]  # both exposed, nothing shadowed
+    v1 = next(tool for tool in tools if tool["name"] == "getusers")
+    v2 = next(tool for tool in tools if tool["name"] == "getusers_2")
+    assert v1["description"] != v2["description"]  # each carries its own summary
+
+
+def test_doctor_warns_on_duplicate_operation_ids(tmp_path, capsys):
+    path = tmp_path / "dup.json"
+    path.write_text(json.dumps(DUP_SPEC))
+    assert cli_main(["doctor", str(path)]) is None  # human mode: warn, no exit
+    out = capsys.readouterr().out
+    assert "1 duplicate operationId(s)" in out and "_2/_3" in out
+
+
+def test_doctor_json_duplicate_count(tmp_path, capsys):
+    path = tmp_path / "dup.json"
+    path.write_text(json.dumps(DUP_SPEC))
+    with pytest.raises(SystemExit):
+        cli_main(["doctor", str(path), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["duplicate_operation_ids"] == 1
