@@ -6,6 +6,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-08-31
+
+### Security
+- **Cross-host redirects no longer carry credentials.** urllib's default
+  redirect handler forwards `Authorization` (and `Cookie`) headers to
+  whatever host a 3xx points at — an open redirect on the upstream would
+  hand the API token to a third party. A sanitizing redirect handler now
+  strips both on any host change; same-host redirects are untouched.
+  Found by a 16-probe silent-failure battery built after a commenter asked
+  what the model *believes* after each failure mode.
+
+### Fixed — what the model sees when responses misbehave
+- **gzip/deflate bodies are decompressed.** urllib ignores
+  `Content-Encoding`; a gateway that compresses anyway fed binary garbage
+  straight into the agent's context. Both success and error bodies now
+  decode through gzip/zlib (stdlib); broken streams degrade to the raw
+  body, never a crash.
+- **Empty successes say so.** A 204 (or an empty 200 body) used to return
+  a blank tool result — the agent couldn't tell "worked, nothing to show"
+  from "broke quietly". Now: `HTTP 204 — success, no response body (204
+  No Content)`.
+- **HTML-as-200 is flagged, not trusted.** Login pages and gateway
+  interstitials arrive as 200 text/html and used to land in the context as
+  if they were API data. The result now leads with `Response is HTML …
+  likely a login/error/gateway page` plus a 500-char excerpt for
+  diagnosis.
+- **Binary responses are named, not dumped.** image/audio/video/PDF/zip
+  bodies became replacement-character soup in the context; they now
+  return `[binary response: content-type …, ~N chars — contents not
+  shown]`.
+- **Spec defaults are advertised in the tool schema** (`default` on the
+  property): omitting the argument means the API applies its default, and
+  the model can now see which value that is.
+
+### Added
+- 8 new tests (516 passing, twenty-eight suites) covering every battery
+  probe: gzip, deflate, 204/empty wording, HTML flagging, binary
+  suppression, cross-host credential stripping, schema defaults.
+
 ## [1.17.2] - 2026-08-31
 
 ### Fixed

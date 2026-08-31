@@ -229,6 +229,10 @@ def build_input_schema(
         entry = {"type": schema.get("type", "string"), "description": str(param.get("description", ""))}
         if schema.get("enum"):
             entry["enum"] = schema["enum"]
+        # surface the spec's default: omitting the argument means the API uses
+        # it, and the model deserves to know which value that is
+        if schema.get("default") is not None:
+            entry["default"] = schema["default"]
         # never advertise a header param for Authorization — auth is managed by flags
         if location == "header" and name.lower() == "authorization":
             continue

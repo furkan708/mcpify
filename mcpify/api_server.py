@@ -409,6 +409,34 @@ class ApiServer:
             extra = remediation(result, tool, self.known_paths)
             return self._text(text + extra, is_error=True)
 
+        content_type = (result.get("headers") or {}).get("Content-Type", "")
+        media_type = content_type.split(";")[0].strip().lower()
+        body = result["body"]
+        # Empty successes must say so: a blank tool result leaves the agent
+        # guessing whether it worked silently or broke quietly (battery A1/A2)
+        if status == 204 or (not body.strip() and not media_type.startswith("text/")):
+            label = " (204 No Content)" if status == 204 else ""
+            return self._text(f"HTTP {status} — success, no response body{label}", is_error=False)
+        # Binary payloads would land in the context as replacement-character
+        # soup; name them instead of dumping them (battery A6)
+        if media_type.startswith(("image/", "audio/", "video/")) or media_type in (
+            "application/octet-stream", "application/pdf", "application/zip",
+        ):
+            return self._text(
+                f"[binary response: content-type {media_type or 'unknown'}, ~{len(body)} chars — contents not shown]",
+                is_error=False,
+            )
+        # HTML on a 2xx is almost never the API talking: login pages and
+        # gateway interstitials arrive as 200. Flag it so the agent does not
+        # treat the markup as data (battery A3 — the Zuplo "client gets HTML
+        # instead of JSON" failure mode)
+        if media_type == "text/html":
+            excerpt = body[:500]
+            return self._text(
+                f"Response is HTML ({content_type}), not the JSON this API normally returns — "
+                f"likely a login/error/gateway page. First {len(excerpt)} chars:\n{excerpt}",
+            )
+
         if self.response_format in ("auto", "xml"):
             content_type = (result.get("headers") or {}).get("Content-Type", "")
             text, converted = convert_format(result["body"], result["json"], content_type, self.response_format)

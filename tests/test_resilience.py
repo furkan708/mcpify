@@ -372,3 +372,154 @@ def test_doctor_silent_on_resolvable_ref(tmp_path, capsys):
     cli_main(["doctor", "--json", str(path)])
     payload = json.loads(capsys.readouterr().out)
     assert payload["broken_parameter_refs"] == 0
+
+
+# ---------------------------------------------------------------------------
+# The silent-failure battery: what the MODEL sees when responses misbehave.
+# gzip/deflate bodies, empty successes, HTML-as-200, binary payloads,
+# cross-host redirect credential leaks, spec defaults in the schema.
+# ---------------------------------------------------------------------------
+
+import gzip
+import zlib
+
+
+class WeirdAPI(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def _send(self, code, body, ctype="application/json", extra=None):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        for key, value in (extra or {}).items():
+            self.send_header(key, value)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == "/gz":
+            payload = gzip.compress(json.dumps({"data": "inside-gzip"}).encode())
+            self._send(200, payload, "application/json", {"Content-Encoding": "gzip"})
+        elif self.path == "/deflate":
+            payload = zlib.compress(json.dumps({"data": "inside-deflate"}).encode())
+            self._send(200, payload, "application/json", {"Content-Encoding": "deflate"})
+        elif self.path == "/nothing":
+            self._send(204, b"", "text/plain")
+        elif self.path == "/blank":
+            self._send(200, b"", "application/json")
+        elif self.path == "/loginpage":
+            self._send(200, b"<html><body>Sign in</body></html>", "text/html")
+        elif self.path == "/pic":
+            self._send(200, b"\x89PNG\r\n\x1a\n" + b"\x00" * 64, "image/png")
+        elif self.path == "/away":
+            self.send_response(302)
+            self.send_header("Location", f"http://localhost:{type(self).landing_port}/landing")
+            self.end_headers()
+        elif self.path == "/landing":
+            body = json.dumps({"auth_seen": self.headers.get("Authorization")}).encode()
+            self._send(200, body)
+        else:
+            self._send(404, b"{}")
+
+
+@pytest.fixture()
+def weird_api():
+    landing = http.server.HTTPServer(("127.0.0.1", 0), WeirdAPI)
+    WeirdAPI.landing_port = landing.server_port
+    thread = threading.Thread(target=landing.serve_forever, daemon=True)
+    thread.start()
+    main = http.server.HTTPServer(("127.0.0.1", 0), WeirdAPI)
+    thread2 = threading.Thread(target=main.serve_forever, daemon=True)
+    thread2.start()
+    yield f"http://127.0.0.1:{main.server_port}"
+    main.shutdown(); main.server_close()
+    landing.shutdown(); landing.server_close()
+
+
+def _weird_spec(base):
+    return {
+        "openapi": "3.0.0", "info": {"title": "Weird", "version": "1"},
+        "servers": [{"url": base}],
+        "paths": {
+            "/gz": {"get": {"operationId": "gz", "summary": "gzip", "responses": {"200": {"description": "ok"}}}},
+            "/deflate": {"get": {"operationId": "deflate", "summary": "deflate", "responses": {"200": {"description": "ok"}}}},
+            "/nothing": {"get": {"operationId": "nothing", "summary": "204", "responses": {"204": {"description": "none"}}}},
+            "/blank": {"get": {"operationId": "blank", "summary": "empty", "responses": {"200": {"description": "ok"}}}},
+            "/loginpage": {"get": {"operationId": "loginpage", "summary": "html", "responses": {"200": {"description": "ok"}}}},
+            "/pic": {"get": {"operationId": "pic", "summary": "png", "responses": {"200": {"description": "ok"}}}},
+            "/away": {"get": {"operationId": "away", "summary": "redirect", "responses": {"200": {"description": "ok"}}}},
+        },
+    }
+
+
+def _call(server, name):
+    response = server.handle_message(rpc("tools/call", {"name": name, "arguments": {}}))
+    return response["result"]["content"][0]["text"]
+
+
+def test_gzip_body_is_decompressed(weird_api):
+    server = _initialized_spec(_weird_spec(weird_api), weird_api)
+    assert "inside-gzip" in _call(server, "gz")
+
+
+def test_deflate_body_is_decompressed(weird_api):
+    server = _initialized_spec(_weird_spec(weird_api), weird_api)
+    assert "inside-deflate" in _call(server, "deflate")
+
+
+def test_204_says_no_content(weird_api):
+    server = _initialized_spec(_weird_spec(weird_api), weird_api)
+    text = _call(server, "nothing")
+    assert "no response body" in text and "204" in text
+
+
+def test_empty_200_says_no_body(weird_api):
+    server = _initialized_spec(_weird_spec(weird_api), weird_api)
+    assert "no response body" in _call(server, "blank")
+
+
+def test_html_success_is_flagged_not_dumped_as_data(weird_api):
+    server = _initialized_spec(_weird_spec(weird_api), weird_api)
+    text = _call(server, "loginpage")
+    assert text.startswith("Response is HTML")
+    assert "Sign in" in text  # excerpt still visible for diagnosis
+
+
+def test_binary_response_is_named_not_dumped(weird_api):
+    server = _initialized_spec(_weird_spec(weird_api), weird_api)
+    text = _call(server, "pic")
+    assert text.startswith("[binary response:")
+    assert "\x89PNG" not in text  # raw bytes never reach the context
+
+
+def test_cross_host_redirect_strips_authorization(weird_api, monkeypatch):
+    monkeypatch.setenv("WEIRD_TOKEN", "secret-token-value")
+    from mcpify.tools import AuthConfig
+
+    server = ApiServer(_weird_spec(weird_api), weird_api, auth=AuthConfig("WEIRD_TOKEN", "bearer"))
+    server.handle_message(rpc("initialize"))
+    server.handle_message(rpc("notifications/initialized"))
+    text = _call(server, "away")  # redirects 127.0.0.1 -> localhost (different host)
+    assert "secret-token-value" not in text
+
+
+def _initialized_spec(spec, base, **kw):
+    path_spec = spec  # already a dict
+    instance = ApiServer(path_spec, base, **kw)
+    instance.handle_message(rpc("initialize"))
+    instance.handle_message(rpc("notifications/initialized"))
+    return instance
+
+
+def test_spec_default_is_advertised_in_schema():
+    from mcpify.tools import spec_to_tools
+
+    spec = {"openapi": "3.0.0", "info": {"title": "D", "version": "1"},
+            "servers": [{"url": "https://x"}],
+            "paths": {"/e": {"get": {"operationId": "e", "summary": "s",
+                                     "parameters": [{"name": "page", "in": "query",
+                                                     "schema": {"type": "integer", "default": 42}}],
+                                     "responses": {"200": {"description": "ok"}}}}}}
+    tool = spec_to_tools(spec)[0]
+    assert tool["inputSchema"]["properties"]["page"]["default"] == 42

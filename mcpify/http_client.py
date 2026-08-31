@@ -13,6 +13,7 @@ Operational add-ons, all opt-in and all stdlib:
 from __future__ import annotations
 
 import contextlib
+import gzip
 import json
 import os
 import sys
@@ -21,11 +22,51 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from collections.abc import Callable
 from typing import Any
 
 from . import metrics
 from .tools import RequestError
+
+
+class _CrossHostSanitizingRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Credential hygiene on redirects.
+
+    A 3xx to another host must not carry the API credential along — an
+    open redirect on the upstream would otherwise hand the token to a
+    third party (found by the silent-failure battery: urllib's default
+    handler forwards Authorization across hosts). Same-host redirects
+    keep working as before.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        old_host = urllib.parse.urlsplit(req.full_url).netloc.lower()
+        new_host = urllib.parse.urlsplit(newurl).netloc.lower()
+        if new_host != old_host:
+            for header in ("Authorization", "Cookie"):
+                req.headers.pop(header, None)
+                req.unredirected_hdrs.pop(header, None)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_CrossHostSanitizingRedirectHandler)
+
+
+def _decode_payload(raw: bytes, headers: dict[str, str]) -> str:
+    """Decompress gzip/deflate bodies before text decoding.
+
+    urllib does not honor Content-Encoding; a gateway that compresses
+    anyway would feed binary garbage into the model's context. Broken
+    streams degrade to the raw body (never crash).
+    """
+    encoding = str(_header_value(headers, "Content-Encoding") or "").strip().lower()
+    if encoding in ("gzip", "x-gzip", "deflate"):
+        try:
+            raw = gzip.decompress(raw) if encoding != "deflate" else zlib.decompress(raw)
+        except (OSError, zlib.error) as err:  # broken stream: report raw, never crash
+            _log("WARNING", f"could not decompress {encoding} response: {err}")
+    return raw.decode("utf-8", "replace")
 
 _LOG_SINKS: list[Callable[[str], None]] = []
 _DEBUG = os.environ.get("MCPIFY_DEBUG") == "1"
@@ -292,14 +333,14 @@ def _execute_once(request: dict[str, Any], timeout: float, cache: ResponseCache 
     basla = time.monotonic()
     try:
         # sema operatorun spec/base-url seciminden gelir; ajandan degil (S310 gerekcesi)
-        with urllib.request.urlopen(req, timeout=timeout) as response:  # noqa: S310
+        with _OPENER.open(req, timeout=timeout) as response:  # noqa: S310
             status = response.status
-            raw = response.read().decode("utf-8", "replace")
             headers = dict(response.headers.items())
+            raw = _decode_payload(response.read(), headers)
     except urllib.error.HTTPError as err:
         status = err.code
-        raw = err.read().decode("utf-8", "replace")
         headers = dict(err.headers.items()) if err.headers else {}
+        raw = _decode_payload(err.read(), headers)
     except urllib.error.URLError as err:
         _log("ERROR", f"{request['method']} {url_guvenli} -> connection failed: {err.reason}")
         return {
