@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.20.1] - 2026-11-21
+
+### Fixed
+- **The pagination hint now starts on its own line.** A body that does not
+  end in a newline (compact JSON, a bare number) was concatenated straight
+  into the note: `…"next_cursor": "tok-2"}[pagination] more results…`. Read
+  by a human it is fine; for a model it is a broken token boundary between
+  data and instruction. Found by installing the published 1.20.0 wheel and
+  looking at the real tool result — the test suite had only ever asserted
+  that the substring was present. 1 new test asserts the line boundary.
+
 ## [1.20.0] - 2026-11-21
 
 Release theme: **what the model actually sees.** Five silent mismatches

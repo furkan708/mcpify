@@ -483,11 +483,11 @@ class ApiServer:
             # left is JSON, so the declared promise can be kept.
             text, _ = format_result(result)  # serialized JSON, truncated for context safety
             return {
-                "content": [{"type": "text", "text": text + hint}],
+                "content": [{"type": "text", "text": _with_hint(text, hint)}],
                 "structuredContent": result["json"],
             }
         text, is_error = format_result(result)
-        return self._text(text + hint, is_error=is_error)
+        return self._text(_with_hint(text, hint), is_error=is_error)
 
     def _pagination_hint(self, tool: dict[str, Any], result: dict[str, Any]) -> str:
         """A "there is more" note the agent can ACT on — never an auto-fetch.
@@ -831,3 +831,18 @@ def serve(
         response_format=response_format,
         wait_on_429=wait_on_429,
     ).serve()
+
+
+def _with_hint(text: str, hint: str) -> str:
+    """Append the pagination note on its own line, whatever the body looked like.
+
+    The hint used to be concatenated directly: a body that did not end in a
+    newline (compact JSON, a bare number) ran into the note and produced
+    ``…"tok-2"}[pagination] more results…`` — perfectly readable to a human,
+    a broken token boundary for a model. Found by installing the published
+    wheel and reading the actual tool result.
+    """
+    if not hint:
+        return text
+    separator = "\n" if text and not text.endswith("\n") else ""
+    return text + separator + hint

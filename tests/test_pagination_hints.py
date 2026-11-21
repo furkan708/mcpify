@@ -263,3 +263,16 @@ def test_structured_content_is_untouched_by_the_hint(pager):
     payload = server.run_tool("list_items", {"limit": 5})
     assert payload["structuredContent"] == {"items": [{"id": 1}], "next_cursor": "tok-2"}
     assert "[pagination]" in payload["content"][0]["text"]
+
+
+def test_hint_starts_on_its_own_line_after_compact_json(pager):
+    """A body without a trailing newline used to run into the note.
+
+    Found by installing the published wheel and reading the tool result:
+    ``…"tok-2"}[pagination] more results…`` — a broken token boundary.
+    """
+    base, _seen = pager
+    text = _server(base, "/cursor").run_tool("list_items", {"limit": 5})["content"][0]["text"]
+    assert '}[pagination]' not in text
+    hint_lines = [line for line in text.splitlines() if line.startswith("[pagination]")]
+    assert len(hint_lines) == 1
