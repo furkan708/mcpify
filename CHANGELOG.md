@@ -6,7 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-11-21
+
+Release theme: **what the model actually sees.** Five silent mismatches
+between what an API said and what the agent was told — a paginated list
+reported as complete, a binary body reported as success, a redirect loop
+reported as an empty 200, a header's spelling deciding how a body was
+classified, and a stale tool surface nobody noticed drifting. None of them
+raised an error anywhere; all of them made the agent answer confidently and
+wrongly.
+
 ### Added
+
 - **`:next` in `mcpify try`.** The REPL records the pagination hint of the
   last call and follows it: the same JSON object the model would read is
   merged over the arguments already used, so a human paging through
@@ -22,6 +33,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per call — the hint never fetches. `--no-paginate-hints` disables it.
   23 tests. The failure it prevents: an agent reading page one and
   reporting the wrong total, with no error anywhere to warn it.
+- **Tool-surface snapshot in CI.** `examples/petstore.json`'s generated
+  surface (descriptions, schemas, annotations — what every client caches
+  and every prompt pays for) is frozen byte-exactly; drift now fails on the
+  first changed line instead of shipping. Regenerate deliberately with
+  `MCPIFY_UPDATE_GOLDEN=1`.
+- **Release pipeline rehearsed on every push.** The release workflow only
+  ran on tags, so an action bump could sit broken until release time; CI
+  now builds the artifacts, asserts the wheel contains the CLI and the
+  shipped schema, and parses all three workflow files. A manual
+  `workflow_dispatch` defaults to a build-only dry run.
 
 ### Fixed
 - **A redirect loop no longer kills the process.** urllib recurses once per

@@ -360,7 +360,7 @@ Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHEC
 
 ## Tests
 
-**575 passing**, plus one live-integration test that loads the real
+**581 passing**, plus one live-integration test that loads the real
 api.weather.gov document (auto-skipped when offline). Every suite runs on
 Python 3.10–3.12 across Linux and Windows; `ruff`, strict `mypy` and
 CodeQL gate every push.
@@ -397,6 +397,7 @@ CodeQL gate every push.
 | v1.15: auth-probe, strict gate, metrics, lazy pricing | 16 | probe with a real credential (401-without vs 200-with over a live local upstream), strict-mode verdicts, doctor CLI exit contract, projection/redaction Prometheus counters (values counted, fresh-session enable), count_redact_targets, lazy-surface pricing lines, `init --probe` reachable/unreachable, dashboard-form token keys (float coercion, unknown-key rejection) |
 | Response-shape guarantees | 15 | media types normalized before classification (`Text/HTML`, `IMAGE/PNG`), a declared `outputSchema` is enforced before the binary path (a `[binary response]` notice is never a silent success), empty successes say so |
 | Pagination hints | 23 | `Link: rel=next`, `X-Next-Url`, `next`/`next_url` body fields, cursor tokens mapped onto declared parameters, hostile targets (`javascript:`, `data:`, `user:pw@`) refused, `structuredContent` untouched, exactly one upstream request |
+| REPL `:next` | 6 | follows the emitted hint inside `mcpify try`, carries the human's own filters, stops when pages run out |
 | Redirect loops & unfollowable 3xx | 7 | a self-redirecting URL returns `retryable:` instead of `RecursionError`, the hop budget is per-request and per-thread, short chains still succeed, 304 stays the cache's own answer |
 | Tool-surface snapshot | 2 | byte-exact freeze of the generated surface (descriptions, schemas, annotations) with a line-precise diff on drift |
 | v1.14: redact, rate-limit, probe, multi list | 29 | masking at every level incl. error bodies and selected-key overlap, arrays masked in place, limiter slots with a fake clock, retry throttling, probe target selection + reachability exit contract, config `redact`/`rate-limit` in serve/apis/envs, per-upstream limiters, multi-API `list` + pricing |
