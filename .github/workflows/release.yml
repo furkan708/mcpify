@@ -4,6 +4,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build the artifacts only (skip PyPI, the MCP registry, the GitHub release and the image)"
+        type: boolean
+        default: true
 
 jobs:
   build:
@@ -24,6 +29,9 @@ jobs:
 
   publish:
     needs: build
+    # A manual dispatch defaults to a build-only rehearsal: publishing needs
+    # the pypi environment's OIDC trust, which a dry run must not touch.
+    if: github.event_name == 'push' || inputs.dry_run == false
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -46,6 +54,7 @@ jobs:
 
   github-release:
     needs: build
+    if: github.event_name == 'push' || inputs.dry_run == false
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -61,6 +70,8 @@ jobs:
           generate_release_notes: true
 
   docker:
+    needs: build
+    if: github.event_name == 'push' || inputs.dry_run == false
     runs-on: ubuntu-latest
     permissions:
       contents: read

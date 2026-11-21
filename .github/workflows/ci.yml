@@ -55,3 +55,42 @@ jobs:
         run: pip install -e '.[dev]'
       - name: Static type check
         run: mypy mcpify/
+
+  release-dry-run:
+    # The release workflow only runs on tags, so a dependabot bump to an
+    # action it uses would sit broken until the next release. Build the
+    # artifacts on every push instead of finding out at tag time.
+    name: Release pipeline (dry run)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist and wheel
+        run: |
+          pip install build
+          python -m build
+      - name: The wheel must contain the CLI and the shipped schema
+        run: |
+          python - <<'PY'
+          import glob, zipfile, sys
+          wheel = glob.glob("dist/*.whl")[0]
+          names = zipfile.ZipFile(wheel).namelist()
+          required = ["mcpify/cli.py", "mcpify/config-schema.json"]
+          missing = [name for name in required if name not in names]
+          if missing:
+              sys.exit(f"missing from {wheel}: {missing}")
+          print(f"{wheel}: {len(names)} entries, CLI + schema present")
+          PY
+      - name: Validate the release workflow's own YAML
+        run: |
+          pip install pyyaml
+          python - <<'PY'
+          import sys, yaml
+          for path in (".github/workflows/release.yml", ".github/workflows/ci.yml",
+                       ".github/workflows/codeql.yml"):
+              with open(path) as fh:
+                  yaml.safe_load(fh)
+              print(f"{path}: parses")
+          PY
