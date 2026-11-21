@@ -13,6 +13,7 @@ Operational add-ons, all opt-in and all stdlib:
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import gzip
 import hashlib
 import json
@@ -31,12 +32,20 @@ from typing import Any
 from . import metrics
 from .tools import RequestError
 
+#: Absolute-URL hops allowed per request, across every redirect handler
+#: urllib may chain. A loop must end as a reported HTTP status, never as a
+#: RecursionError from inside urllib (which no remediation tip can explain).
+MAX_REDIRECTS = 10
+
 
 class _CrossHostSanitizingRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Do not forward caller-supplied headers across origins.
 
     Credentials can use arbitrary header names, so a denylist is not safe.
     A scheme change also crosses the trust boundary, including HTTPS to HTTP.
+    Hops are counted in :func:`execute` (see ``_REDIRECT_COUNTER``), not
+    here: urllib resets an instance-level counter before every request, and
+    the loop spanning several handlers is what actually needs a ceiling.
     """
 
     def redirect_request(  # urllib's base signature is untyped; Any keeps the override strict-clean
@@ -53,7 +62,50 @@ class _CrossHostSanitizingRedirectHandler(urllib.request.HTTPRedirectHandler):
         return redirected
 
 
-_OPENER = urllib.request.build_opener(_CrossHostSanitizingRedirectHandler)
+#: Statuses that ask the client to go somewhere else. A 304 (Not Modified)
+#: and a 300 (Multiple Choices) are answers, not unfollowable hops.
+REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+
+
+def is_failure(status: int) -> bool:
+    """True when a result must be shown to the model as a failure.
+
+    A 3xx here means "a redirect nobody could follow" (loop, bad Location),
+    which is a broken deployment, not a success with an empty body.
+    """
+    return status == 0 or status >= 400 or status in REDIRECT_STATUSES
+
+
+#: Per-call redirect budget. A ContextVar, not a module global: tools/call
+#: runs concurrently through a thread pool, and one caller's loop must not
+#: eat another caller's hops.
+_REDIRECT_COUNTER: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "mcpify_redirect_hops", default=0
+)
+
+
+class _CountingSanitizingRedirectHandler(_CrossHostSanitizingRedirectHandler):
+    """Every hop: counted (so a loop stays finite) and sanitized.
+
+    Both jobs must live in ONE handler. urllib calls ``redirect_request``
+    only on the handler that decided to follow, so a second redirect
+    handler in the opener chain is never consulted — chaining them
+    silently disabled the credential stripping (caught by
+    test_cross_host_redirect_strips_authorization).
+    """
+
+    def redirect_request(  # urllib's base signature is untyped
+        self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str
+    ) -> Any:
+        hops = _REDIRECT_COUNTER.get() + 1
+        _REDIRECT_COUNTER.set(hops)
+        if hops > MAX_REDIRECTS:
+            return None  # urllib's own "do not follow" signal: the 3xx is
+            # handed back to _execute_once, which explains it to the model
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_CountingSanitizingRedirectHandler)
 
 
 def _decode_payload(raw: bytes, headers: dict[str, str]) -> str:
@@ -269,6 +321,7 @@ def execute(
     attempts = max(0, min(retry, MAX_RETRIES))
     attempt = 0
     waited_429 = False
+    _REDIRECT_COUNTER.set(0)  # each attempt gets its own hop budget
     while True:
         if rate_limit is not None:
             rate_limit.wait()
@@ -286,7 +339,11 @@ def execute(
                 time.sleep(delay)
                 waited_429 = True
                 continue
-        retryable = result["status"] in RETRYABLE_STATUS or result["status"] == 0
+        retryable = (
+            result["status"] in RETRYABLE_STATUS
+            or result["status"] == 0
+            or result["status"] in REDIRECT_STATUSES
+        )
         if attempt < attempts and retryable and method in IDEMPOTENT_METHODS:
             _log("WARNING", f"retry {attempt + 1}/{attempts} for {method} "
                             f"(status {result['status']}, waiting {retry_delay}s)")
@@ -344,9 +401,12 @@ def _execute_once(request: dict[str, Any], timeout: float, cache: ResponseCache 
             headers = dict(response.headers.items())
             raw = _decode_payload(response.read(), headers)
     except urllib.error.HTTPError as err:
-        status = err.code
+        status = int(err.code) if isinstance(err.code, int) else 0
         headers = dict(err.headers.items()) if err.headers else {}
-        raw = _decode_payload(err.read(), headers)
+        try:
+            raw = _decode_payload(err.read(), headers)
+        except (OSError, ValueError):
+            raw = ""  # redirect-loop errors carry no readable body
     except urllib.error.URLError as err:
         _log("ERROR", f"{request['method']} {url_guvenli} -> connection failed: {err.reason}")
         return {
@@ -354,6 +414,7 @@ def _execute_once(request: dict[str, Any], timeout: float, cache: ResponseCache 
             "body": f"connection failed: {err.reason}",
             "json": None,
             "headers": {},
+            "url": request["url"],
         }
     except TimeoutError:  # read-phase timeout escapes urllib unwrapped — without this it kills the server
         _log("ERROR", f"{request['method']} {url_guvenli} -> timeout after {timeout}s")
@@ -362,6 +423,7 @@ def _execute_once(request: dict[str, Any], timeout: float, cache: ResponseCache 
             "body": f"timeout: no response within {timeout}s (client-side --timeout)",
             "json": None,
             "headers": {},
+            "url": request["url"],
         }
     except OSError as err:  # reset / remote disconnected mid-response — URLError covers connect-phase only
         _log("ERROR", f"{request['method']} {url_guvenli} -> connection failed: {err}")
@@ -370,6 +432,7 @@ def _execute_once(request: dict[str, Any], timeout: float, cache: ResponseCache 
             "body": f"connection failed: {err}",
             "json": None,
             "headers": {},
+            "url": request["url"],
         }
     sure = time.monotonic() - basla
     if status >= 500:
@@ -379,6 +442,24 @@ def _execute_once(request: dict[str, Any], timeout: float, cache: ResponseCache 
     else:
         _log("INFO", f"{request['method']} {url_guvenli} -> {status} ({sure:.2f}s)")
 
+    if status in REDIRECT_STATUSES:
+        # A 3xx that reached us is a redirect nobody could follow: urllib's
+        # own loop detector (or our hop budget) refused it, or the Location
+        # was unusable. Reporting it as a successful empty body — which is
+        # what a status < 400 used to mean here — told the model "HTTP 302,
+        # success, no response body" for a totally broken base URL.
+        location = _header_value(headers, "Location") or "none"
+        _log("ERROR", f"{request['method']} {url_guvenli} -> unfollowable redirect "
+                      f"({status}, Location: {location})")
+        return {
+            "status": status,
+            "body": (f"the API answered {status} with a redirect that could not be "
+                     f"followed (Location: {location}) — probably a loop, or a base "
+                     f"URL pointing at a login/gateway page; check the spec's server URL"),
+            "json": None,
+            "headers": headers,
+            "url": request["url"],
+        }
     parsed = None
     with contextlib.suppress(json.JSONDecodeError, ValueError):
         parsed = json.loads(raw)
@@ -432,6 +513,11 @@ def error_category(status: int) -> str:
     if status in (401, 403):
         return "forbidden"
     if status == 0 or status == 429 or status >= 500:
+        return "retryable"
+    if status in REDIRECT_STATUSES:
+        # The API kept redirecting (or pointed somewhere unusable): retrying
+        # the same call is reasonable once the deployment is fixed, and it is
+        # certainly not the model's input that needs to change.
         return "retryable"
     return "invalid_request"
 
@@ -735,7 +821,8 @@ def format_result(result: dict[str, Any]) -> tuple[str, bool]:
     if result["json"] is not None:
         body = json.dumps(result["json"], ensure_ascii=False, indent=2)
     body = _smart_truncate(body, MAX_RESULT_CHARS)
-    is_error = result["status"] == 0 or result["status"] >= 400
+    status = result["status"]
+    is_error = is_failure(status)
     if is_error:
         return f"HTTP {result['status']}\n{body}", is_error
     return body, is_error

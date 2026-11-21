@@ -37,6 +37,7 @@ from .http_client import (
     error_category,
     execute,
     format_result,
+    is_failure,
     media_type_of,
     pagination_hint,
     project_json,
@@ -407,13 +408,15 @@ class ApiServer:
         metrics.observe(
             "mcpify_tool_latency_seconds", self._metric_labels(tool), time.monotonic() - started
         )
-        outcome = "error" if (result["status"] == 0 or result["status"] >= 400) else "ok"
+        outcome = "error" if is_failure(result["status"]) else "ok"
         metrics.inc("mcpify_tool_calls_total", {**self._metric_labels(tool), "outcome": outcome})
         return self._payload_for(tool, result)
 
     def _payload_for(self, tool: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
         status = result["status"]
-        if status == 0 or status >= 400:
+        if is_failure(status):
+            # is_failure, not "0 or >=400": an unfollowable 3xx is a broken
+            # deployment too, and used to be reported as a quiet success
             text, _ = format_result(result)
             extra = remediation(result, tool, self.known_paths)
             category = error_category(status)

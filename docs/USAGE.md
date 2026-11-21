@@ -424,6 +424,13 @@ Deliberate limits:
 - **`--no-paginate-hints`** turns the note off (and `no-paginate-hints =
   true` in `.mcpify.toml`).
 
+Redirects are followed, but a hop that crosses origin (host **or**
+scheme, including HTTPS→HTTP) drops every caller-supplied header before
+the next request; at most 10 hops are followed per call. A 3xx that
+reaches the tool result means *nothing could follow it* (loop, unusable
+`Location`) and is reported as a `retryable:` error instead of an empty
+success — check the spec's `servers[].url` first.
+
 ### Remediation-grade errors
 
 HTTP errors carry corrective guidance so the *next* call succeeds:

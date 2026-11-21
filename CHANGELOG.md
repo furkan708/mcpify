@@ -19,6 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reporting the wrong total, with no error anywhere to warn it.
 
 ### Fixed
+- **A redirect loop no longer kills the process.** urllib recurses once per
+  hop; a URL that redirects to itself raised `RecursionError`, which is not
+  an `OSError`, so it escaped every handler and took the serving process
+  with it. A per-request hop budget (10, a `ContextVar` so concurrent calls
+  do not share it) ends the loop; the response is reported as an error.
+- **A redirect the client cannot follow is an error, not a success.** The
+  old result was `HTTP 302 — success, no response body` — the model was
+  told a broken base URL worked. It now carries the taxonomy token
+  (`retryable:`), the redirect status, the `Location`, and what to check.
+  A 3xx only counts as a failure in the 301/302/303/307/308 set: **304**
+  is the ETag cache's own answer and is untouched.
 - `Content-Type` is normalized (case and parameters) before the body is
   classified, so `Text/HTML` is still flagged as an HTML page and
   `IMAGE/PNG` is still named as binary instead of being dumped into the
