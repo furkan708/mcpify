@@ -32,10 +32,12 @@ from .http_client import (
     OAuth2ClientCredentials,
     RateLimiter,
     ResponseCache,
+    _header_value,
     count_redact_targets,
     error_category,
     execute,
     format_result,
+    media_type_of,
     project_json,
     redact_json,
     remediation,
@@ -420,14 +422,26 @@ class ApiServer:
             }
             return payload
 
-        content_type = (result.get("headers") or {}).get("Content-Type", "")
-        media_type = content_type.split(";")[0].strip().lower()
+        content_type = _header_value(result.get("headers") or {}, "Content-Type") or ""
+        media_type = media_type_of(content_type)
         body = result["body"]
         # Empty successes must say so: a blank tool result leaves the agent
         # guessing whether it worked silently or broke quietly (battery A1/A2)
         if status == 204 or (not body.strip() and not media_type.startswith("text/")):
             label = " (204 No Content)" if status == 204 else ""
             return self._text(f"HTTP {status} — success, no response body{label}", is_error=False)
+        # A declared outputSchema is a promise: success must carry
+        # structuredContent. Answering it with a text dump or a silently
+        # named binary ("contents not shown") hides upstream breakage from
+        # the model, so any non-JSON 2xx becomes an error result — the spec
+        # exempts isError results from output validation, so this is legal.
+        if tool.get("outputSchema") is not None and result["json"] is None:
+            return self._text(
+                f"HTTP {status}\nThis tool declares a JSON response, but the API "
+                f"returned a non-JSON body:\n"
+                f"{body[:500]}",
+                is_error=True,
+            )
         # Binary payloads would land in the context as replacement-character
         # soup; name them instead of dumping them (battery A6)
         if media_type.startswith(("image/", "audio/", "video/")) or media_type in (
@@ -449,24 +463,14 @@ class ApiServer:
             )
 
         if self.response_format in ("auto", "xml"):
-            content_type = (result.get("headers") or {}).get("Content-Type", "")
             text, converted = convert_format(result["body"], result["json"], content_type, self.response_format)
             if converted is not None and converted is not result["json"]:
                 result = {**result, "body": text, "json": converted}
 
         schema = tool.get("outputSchema")
         if schema is not None:
-            # Structured output is a declared promise: success must carry
-            # structuredContent. A non-JSON body breaks that contract, so
-            # it is reported as a tool error (spec exempts isError results
-            # from output validation).
-            if result["json"] is None:
-                excerpt = result["body"][:500]
-                return self._text(
-                    f"HTTP {status}\nThis tool declares a JSON response, but the API "
-                    f"returned a non-JSON body:\n{excerpt}",
-                    is_error=True,
-                )
+            # Non-JSON bodies were turned into error results above; what is
+            # left is JSON, so the declared promise can be kept.
             text, _ = format_result(result)  # serialized JSON, truncated for context safety
             return {
                 "content": [{"type": "text", "text": text}],

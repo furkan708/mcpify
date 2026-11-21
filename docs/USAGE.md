@@ -383,6 +383,12 @@ doesn't. Error results stay text-only (spec-exempt), and a non-JSON body
 against a declared schema is reported as a tool error — a broken promise
 is a protocol violation, so it's surfaced instead.
 
+That check runs *before* the body classifiers, so it also covers the
+binary and HTML cases: `HTTP 200 image/png` on a tool that promised JSON is
+an error, not a "contents not shown" success. Media types are matched
+case-insensitively (`Text/HTML`, `IMAGE/PNG`), because gateways do not
+spell `Content-Type` consistently.
+
 ### Remediation-grade errors
 
 HTTP errors carry corrective guidance so the *next* call succeeds:

@@ -399,6 +399,16 @@ def _execute_once(request: dict[str, Any], timeout: float, cache: ResponseCache 
 MAX_RESULT_CHARS = 40_000
 
 
+def media_type_of(content_type: str | None) -> str:
+    """Normalize a Content-Type header to a bare, lowercase media type.
+
+    ``"Application/Problem+JSON; charset=utf-8"`` -> ``"application/problem+json"``.
+    Servers are not consistent about casing, and the downstream classifier
+    is a string comparison, so normalization belongs in one place.
+    """
+    return (content_type or "").split(";")[0].strip().lower()
+
+
 def error_category(status: int) -> str:
     """Classify an HTTP failure into the three actions an agent can take.
 

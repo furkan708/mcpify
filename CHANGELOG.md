@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `Content-Type` is normalized (case and parameters) before the body is
+  classified, so `Text/HTML` is still flagged as an HTML page and
+  `IMAGE/PNG` is still named as binary instead of being dumped into the
+  model's context as text.
+- A declared `outputSchema` is enforced before the body classifiers run, so
+  a binary body on a schema-declaring tool is a tool error instead of a
+  successful `[binary response: contents not shown]` with no
+  `structuredContent` — the model could not tell a quiet failure from a
+  success. Text bodies behaved correctly already; only the binary path
+  disagreed.
 - Cross-origin redirects (including HTTPS-to-HTTP) no longer forward
   caller-supplied headers, including custom API-key headers. Same-origin
   redirects retain their headers.
