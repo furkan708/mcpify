@@ -305,7 +305,8 @@ def apply_to_namespace(settings: dict[str, Any], args: Any) -> list[str]:
         ) or (attr == "timeout" and current == 30.0) or (
             attr in choice_defaults and current == choice_defaults[attr]
         )
-        if key in ("read-only", "lazy", "enable-preview", "strict", "verbose"):
+        if key in ("read-only", "lazy", "enable-preview", "strict", "verbose",
+                   "no-paginate-hints"):
             # boolean flags: config may turn them ON; an explicit CLI True stays
             if current is False and value:
                 setattr(args, attr, value)

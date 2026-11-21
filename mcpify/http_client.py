@@ -17,6 +17,7 @@ import gzip
 import hashlib
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -384,7 +385,12 @@ def _execute_once(request: dict[str, Any], timeout: float, cache: ResponseCache 
     if _VERBOSE and raw:
         excerpt = raw[:1000]
         _log("INFO", f"response {status} from {url_guvenli} ({len(raw)} bytes): {excerpt}")
-    result = {"status": status, "body": raw, "json": parsed, "headers": headers}
+    # ``url`` is the request's own URL (query string included): the pagination
+    # hint needs to resolve a relative "next" against it, and nothing else
+    # consumes this key. Query-style credentials never reach the model — the
+    # hint only reports parameters the tool already declares.
+    result = {"status": status, "body": raw, "json": parsed, "headers": headers,
+              "url": request["url"]}
     if cache is not None and is_get:
         if status == 304 and revalidate_entry is not None:
             cache.revalidate(cache_key)
@@ -888,3 +894,183 @@ class OAuth2ClientCredentials:
             "client_secret_env": self.client_secret_env,
             "client_secret_env_set": bool(os.environ.get(self.client_secret_env)) if self.client_secret_env else None,
         }
+
+
+# ---------------------------------------------------------------------------
+# Pagination hints (stdlib only, no parsing of the upstream's pagination scheme)
+# ---------------------------------------------------------------------------
+
+_SAFE_NEXT_LINK = re.compile(r"^https?://", re.IGNORECASE)
+_SCHEME_LIKE = re.compile(r"^[a-z][a-z0-9+.\-]*:", re.IGNORECASE)
+
+
+def _absolute_url(url: str, current_url: str) -> str | None:
+    """Resolve `url` against `current_url`; None unless it is plain http(s).
+
+    A relative ``next`` is allowed (it stays on the API's own host), but a
+    ``javascript:``/``data:`` target must never reach the model as an
+    instruction, and a credential-bearing URL must never be echoed back —
+    that would put a token into the tool result.
+    """
+    resolved = urllib.parse.urljoin(current_url, url.strip())
+    if not _SAFE_NEXT_LINK.match(resolved):
+        return None
+    parts = urllib.parse.urlsplit(resolved)
+    if parts.username or parts.password:
+        return None
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, parts.query, ""))
+
+
+def next_page_url(
+    headers: dict[str, Any],
+    body_text: str,
+    current_url: str,
+    query_params: frozenset[str] | None = None,
+) -> str | None:
+    """The upstream's own "there is more" signal, if it gave one.
+
+    Four conventions cover nearly every REST API:
+
+    - ``Link: <...>; rel="next"`` (RFC 8288 — GitHub, GitLab, many gateways)
+    - ``X-Next-Page`` / ``X-Next-Url`` (GitLab, some proxies)
+    - a JSON body field named ``next``/``next_page``/``nextPage``/``next_url``
+      holding a URL string
+    - a JSON body field named ``next_cursor``/``nextCursor``/``next``/
+      ``next_page`` holding an opaque token, which is handed back as a ready
+      argument: the caller's URL is reused with only that parameter swapped,
+      so the tool's own parameter style (and credentials) are preserved.
+      This branch needs ``query_params`` (the parameter names the tool
+      declares): a token under a name nobody accepts is not callable, and a
+      hint that cannot be followed is worse than none.
+
+    Returns a URL to call for the page, or None. Nothing is fetched here.
+    """
+    link = _header_value(headers, "Link")
+    if link:
+        for part in link.split(","):
+            target = part.split(";")
+            if len(target) < 2:
+                continue
+            rels = " ".join(
+                bit.split("=", 1)[1].strip().strip('"') for bit in target[1:] if "rel=" in bit
+            )
+            if "next" in rels.split():
+                candidate = target[0].strip().strip("<>").strip()
+                return _absolute_url(candidate, current_url)
+
+    for header in ("X-Next-Url", "X-Next-Page", "X-Page-Next"):
+        value = _header_value(headers, header)
+        if value and header == "X-Next-Url":
+            return _absolute_url(value, current_url)
+
+    try:
+        parsed = json.loads(body_text)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+
+    for key in ("next", "next_page", "nextPage", "next_url", "nextUrl"):
+        value = parsed.get(key)
+        if isinstance(value, str) and value.strip() and _SAFE_NEXT_LINK.match(value.strip()):
+            return _absolute_url(value, current_url)
+
+    if not query_params:
+        return None
+    current = urllib.parse.urlsplit(current_url)
+    query = urllib.parse.parse_qsl(current.query, keep_blank_values=True)
+    for key in ("nextCursor", "next_cursor", "next", "nextPage", "next_page", "cursor"):
+        value = parsed.get(key)
+        if not isinstance(value, (str, int)) or not str(value).strip():
+            continue
+        token = str(value).strip()
+        if _SCHEME_LIKE.match(token):
+            continue  # "javascript:...", "data:..." — not a cursor
+        # A plain loop, not next()+generator: mypy strict mis-binds the
+        # builtin name here and that is not worth a cast for three lines.
+        param_name = None
+        for candidate in _token_names(key):
+            if candidate in query_params:
+                param_name = candidate
+                break
+        if param_name is None:
+            continue  # the API names a parameter this tool does not expose
+        swapped: list[tuple[str, str]] = [(k, v) for k, v in query if k != param_name]
+        swapped.append((param_name, token))
+        return urllib.parse.urlunsplit(
+            (current.scheme, current.netloc, current.path, urllib.parse.urlencode(swapped), "")
+        )
+    return None
+
+
+def _token_names(key: str) -> list[str]:
+    """Parameter names a cursor key may map to: ``nextCursor`` -> cursor.
+
+    APIs name the value and the argument differently more often than not
+    (``next_cursor`` in the body, ``cursor`` in the query string).
+    """
+    snake = re.sub(r"(?<!^)(?=[A-Z])", "_", key).lower()
+    stripped = re.sub(r"^next_?", "", snake)
+    return [key, snake, stripped, re.sub(r"_([a-z])", lambda m: m.group(1).upper(), stripped)]
+
+
+def page_argument(tool: dict[str, Any], page_url: str) -> dict[str, Any] | None:
+    """Turn a next-page URL into the tool arguments that request it.
+
+    Only parameters the tool actually declares are passed through (cursor,
+    page, pageToken, limit...). Path variables are taken from the tool's own
+    path template when it matches, so ``/items/{id}?page=2`` keeps ``id``.
+    Returns None when the page URL says nothing the tool can accept — better
+    no hint than a hint that cannot be called.
+    """
+    declared = {
+        (param.get("name"), param.get("in"))
+        for param in tool.get("_meta", {}).get("parameters", [])
+        if isinstance(param, dict)
+    }
+    page = urllib.parse.urlsplit(page_url)
+    arguments: dict[str, Any] = {
+        name: value
+        for name, value in urllib.parse.parse_qsl(page.query, keep_blank_values=True)
+        if (name, "query") in declared
+    }
+    return arguments or None
+
+
+def pagination_hint(tool: dict[str, Any], result: dict[str, Any], url: str) -> str:
+    """One-line, model-facing "there is more" note; "" when there is not."""
+    if result.get("status") != 200:
+        return ""
+    declared = {
+        str(param.get("name"))
+        for param in tool.get("_meta", {}).get("parameters", [])
+        if isinstance(param, dict) and param.get("in") == "query"
+    }
+    page_url = next_page_url(
+        result.get("headers") or {}, result.get("body") or "", url, frozenset(declared)
+    )
+    if page_url is None:
+        return ""
+    same_url = urllib.parse.urlsplit(page_url)
+    current = urllib.parse.urlsplit(url)
+    same_path = (same_url.scheme, same_url.netloc, same_url.path) == (
+        current.scheme, current.netloc, current.path
+    )
+    arguments = page_argument(tool, page_url)
+    if arguments and same_path:
+        rendered = json.dumps(arguments, ensure_ascii=False, sort_keys=True)
+        return (
+            f"[pagination] more results available — call {tool.get('name') or 'this tool'} with "
+            f"{rendered} for the next page (nothing was fetched automatically)"
+        )
+    if not same_path:
+        # A next URL on another path cannot be expressed as arguments for
+        # THIS tool; saying "there is more" is still better than silence.
+        return (
+            "[pagination] the API reports another page at a different path than this "
+            "tool exposes — use the tool for that path, or raise the page size"
+        )
+    return (
+        "[pagination] the API reports another page, but this tool exposes no "
+        "matching parameter for it — raise the limit/pagination argument manually"
+    )

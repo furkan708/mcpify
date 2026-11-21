@@ -256,6 +256,9 @@ def _add_serve_options(p: argparse.ArgumentParser, with_http: bool) -> None:
     p.add_argument("--redact", default=None, metavar="F1,F2",
                    help="response redaction: values whose key names one of these fields are masked "
                    "with '***' at every level (case-insensitive) — the model never sees secrets")
+    p.add_argument("--no-paginate-hints", action="store_true",
+                   help="do not append the '[pagination] more results' note to responses that "
+                   "carry a next-page signal (Link header, next cursor field)")
     p.add_argument("--rate-limit", type=float, default=None, metavar="RPS",
                    help="client-side courtesy throttle: max requests/second toward the upstream "
                    "(every call waits for a slot; retries included)")
@@ -1211,6 +1214,7 @@ def main(argv: list[str] | None = None) -> None:
             fields=_parse_fields(getattr(args, "fields", None), "--fields"),
             redact=_parse_fields(getattr(args, "redact", None), "--redact"),
             rate_limit=getattr(args, "rate_limit", None),
+            paginate_hints=not getattr(args, "no_paginate_hints", False),
             timeout=args.timeout,
             tools=tools,
             lazy=args.lazy,
@@ -1349,6 +1353,7 @@ def main(argv: list[str] | None = None) -> None:
             fields=_parse_fields(getattr(args, "fields", None), "--fields"),
             redact=_parse_fields(getattr(args, "redact", None), "--redact"),
             rate_limit=getattr(args, "rate_limit", None),
+            paginate_hints=not getattr(args, "no_paginate_hints", False),
             timeout=args.timeout,
             tools=tools,
             lazy=args.lazy,
@@ -1407,6 +1412,7 @@ def main(argv: list[str] | None = None) -> None:
             fields=_parse_fields(getattr(args, "fields", None), "--fields"),
             redact=_parse_fields(getattr(args, "redact", None), "--redact"),
             rate_limit=getattr(args, "rate_limit", None),
+            paginate_hints=not getattr(args, "no_paginate_hints", False),
             timeout=args.timeout,
             tools=tools,
             lazy=args.lazy,

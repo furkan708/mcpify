@@ -389,6 +389,41 @@ an error, not a "contents not shown" success. Media types are matched
 case-insensitively (`Text/HTML`, `IMAGE/PNG`), because gateways do not
 spell `Content-Type` consistently.
 
+### Pagination awareness
+
+An agent that stops at page one reports the wrong total, and no API error
+ever tells it so. Every 200 response whose upstream already said "there is
+more" gets one extra line appended to the tool result:
+
+```
+[pagination] more results available — call list_items with {"cursor": "tok-2", "limit": 50}
+for the next page (nothing was fetched automatically)
+```
+
+Three signals are read, in order — `Link: <…>; rel="next"` (RFC 8288),
+an `X-Next-Url` header, and a body field named `next`, `next_page`,
+`nextPage`, `next_url`, or a cursor (`next_cursor`, `nextCursor`, `cursor`)
+whose value is not itself a URL. The hint is only emitted when the next
+page is **callable**: the parameters are filtered to the ones the tool
+declares, and a cursor is mapped onto the parameter name the tool actually
+exposes (`next_cursor` in the body, `cursor` in the query string). A next
+URL on a different path, or one naming a parameter this tool does not
+have, gets a plain warning instead of a call that cannot work.
+
+Deliberate limits:
+
+- **One request per call.** The hint never fetches. A tool call cannot
+  become an unbounded crawl of someone's API, and there is no hidden cost.
+- **No instructions from the upstream.** Only `http`/`https` URLs are
+  accepted; `javascript:`/`data:` values and URLs carrying
+  `user:password@` are ignored, so a hostile API cannot inject a callable
+  target into the model's context. (The upstream's own body is still
+  returned as data — it is the API's answer, not a directive.)
+- **`structuredContent` is untouched.** The note rides on the text
+  content only, so a declared `outputSchema` promise stays exact.
+- **`--no-paginate-hints`** turns the note off (and `no-paginate-hints =
+  true` in `.mcpify.toml`).
+
 ### Remediation-grade errors
 
 HTTP errors carry corrective guidance so the *next* call succeeds:

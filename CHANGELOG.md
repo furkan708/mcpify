@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Pagination hints.** A 200 response whose upstream signals more results
+  (`Link: rel="next"`, an `X-Next-Url` header, a `next`/`next_url` body
+  field, or a `next_cursor`-style token) now ends with one actionable line:
+  `[pagination] more results available — call <tool> with {"cursor": …}`.
+  The parameters are filtered to the ones the tool declares, so the hint is
+  always callable; `javascript:`/`data:`/credential-bearing targets are
+  refused; `structuredContent` is untouched; exactly one request is made
+  per call — the hint never fetches. `--no-paginate-hints` disables it.
+  23 tests. The failure it prevents: an agent reading page one and
+  reporting the wrong total, with no error anywhere to warn it.
+
 ### Fixed
 - `Content-Type` is normalized (case and parameters) before the body is
   classified, so `Text/HTML` is still flagged as an HTML page and

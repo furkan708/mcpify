@@ -38,6 +38,7 @@ from .http_client import (
     execute,
     format_result,
     media_type_of,
+    pagination_hint,
     project_json,
     redact_json,
     remediation,
@@ -205,6 +206,7 @@ class ApiServer:
         fields: frozenset[str] | None = None,
         redact: frozenset[str] | None = None,
         rate_limit: float | None = None,
+        paginate_hints: bool = True,
     ) -> None:
         self.spec = spec
         self.base_url = base_url
@@ -224,6 +226,10 @@ class ApiServer:
         # client-side courtesy throttle (--rate-limit RPS): one limiter
         # per upstream; every execute() waits for a slot before dialing
         self.rate_limiter = RateLimiter(rate_limit) if rate_limit else None
+        # "there is more" notes on paginated GET responses (--no-paginate-hints
+        # turns them off): derived from the upstream's own signals, never a
+        # second request
+        self.paginate_hints = paginate_hints
         self.timeout = timeout
         self.lazy = lazy
         # tools may be pre-filtered by the CLI policy layer; building them
@@ -467,17 +473,32 @@ class ApiServer:
             if converted is not None and converted is not result["json"]:
                 result = {**result, "body": text, "json": converted}
 
+        hint = self._pagination_hint(tool, result)
         schema = tool.get("outputSchema")
         if schema is not None:
             # Non-JSON bodies were turned into error results above; what is
             # left is JSON, so the declared promise can be kept.
             text, _ = format_result(result)  # serialized JSON, truncated for context safety
             return {
-                "content": [{"type": "text", "text": text}],
+                "content": [{"type": "text", "text": text + hint}],
                 "structuredContent": result["json"],
             }
         text, is_error = format_result(result)
-        return self._text(text, is_error=is_error)
+        return self._text(text + hint, is_error=is_error)
+
+    def _pagination_hint(self, tool: dict[str, Any], result: dict[str, Any]) -> str:
+        """A "there is more" note the agent can ACT on — never an auto-fetch.
+
+        Pagination is the most common reason an agent stops at page one and
+        reports the wrong total. The hint is derived from what the upstream
+        already told us (Link header, next-cursor field), turned into
+        arguments this tool actually declares; mcpify still makes exactly
+        one request per call, so a tool call never turns into an unbounded
+        crawl of someone's API.
+        """
+        if not self.paginate_hints:
+            return ""
+        return pagination_hint(tool, result, str(result.get("url") or ""))
 
     def _run_meta(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if name == SEARCH_TOOL:
