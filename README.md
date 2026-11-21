@@ -349,12 +349,18 @@ examples:
 - **Blast-radius controls:** read-only mode, deny/allow policy layer,
   per-token RBAC, response projection + secret masking, rate limiting,
   40k-char valid truncation, `--timeout`, credentials never logged.
+- **What the model actually sees:** bodies are classified on a normalized
+  media type (a `Text/HTML` login page is flagged, `IMAGE/PNG` is named,
+  never dumped as text), an unfollowable redirect is a `retryable:` error
+  instead of an empty success, a redirect loop cannot take the process
+  down, and a paginated response says "there is more" with arguments the
+  tool actually accepts — one request per call, always.
 
 Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHECKLIST.md)**
 
 ## Tests
 
-**520 passing**, plus one live-integration test that loads the real
+**575 passing**, plus one live-integration test that loads the real
 api.weather.gov document (auto-skipped when offline) and an OTel positive
 test that runs wherever the optional tracing extra is installed. Every
 suite runs on Python 3.10–3.12 across Linux and Windows; `ruff`, strict
@@ -390,6 +396,10 @@ suite runs on Python 3.10–3.12 across Linux and Windows; `ruff`, strict
 | v1.13: cost, projection, SSE, OAuth2 write | 20 | surface pricing in JSON + human output, recursive projection with transparent envelopes (both rules pinned: the top-level-only first rule failed live), selected keys keep their arrays, SSE framing vs JSON clients, write-flow resolution + mutual exclusion with `--write-auth-env` |
 | v1.16: status policy, REPL session controls, diff probe + cost delta | 12 | policy (fields/redact/rate-limit) in multi-API JSON+human status and single-spec `policy:` line, `:redact`/`:fields` session set/show/clear over a live upstream (masking verified on the wire), diff surface-cost delta in JSON+human, `--probe` reachable/unreachable exit contract (2 on probe failure), form retry-delay float |
 | v1.15: auth-probe, strict gate, metrics, lazy pricing | 16 | probe with a real credential (401-without vs 200-with over a live local upstream), strict-mode verdicts, doctor CLI exit contract, projection/redaction Prometheus counters (values counted, fresh-session enable), count_redact_targets, lazy-surface pricing lines, `init --probe` reachable/unreachable, dashboard-form token keys (float coercion, unknown-key rejection) |
+| Response-shape guarantees | 15 | media types normalized before classification (`Text/HTML`, `IMAGE/PNG`), a declared `outputSchema` is enforced before the binary path (a `[binary response]` notice is never a silent success), empty successes say so |
+| Pagination hints | 23 | `Link: rel=next`, `X-Next-Url`, `next`/`next_url` body fields, cursor tokens mapped onto declared parameters, hostile targets (`javascript:`, `data:`, `user:pw@`) refused, `structuredContent` untouched, exactly one upstream request |
+| Redirect loops & unfollowable 3xx | 7 | a self-redirecting URL returns `retryable:` instead of `RecursionError`, the hop budget is per-request and per-thread, short chains still succeed, 304 stays the cache's own answer |
+| Tool-surface snapshot | 2 | byte-exact freeze of the generated surface (descriptions, schemas, annotations) with a line-precise diff on drift |
 | v1.14: redact, rate-limit, probe, multi list | 29 | masking at every level incl. error bodies and selected-key overlap, arrays masked in place, limiter slots with a fake clock, retry throttling, probe target selection + reachability exit contract, config `redact`/`rate-limit` in serve/apis/envs, per-upstream limiters, multi-API `list` + pricing |
 
 Policy on failures: every bug found in the wild becomes a pinned
