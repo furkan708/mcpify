@@ -42,29 +42,45 @@ jobs:
         with:
           name: dist
           path: dist/
-      - name: Is this version already on PyPI?
+      - name: Read the version, and check what is already published
         id: seen
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          on_pypi=false
           if curl -fsS "https://pypi.org/pypi/mcpify-openapi/${version}/json" >/dev/null 2>&1; then
-            echo "already=true" >> "$GITHUB_OUTPUT"
-            echo "mcpify-openapi ${version} is already published — skipping the upload."
-          else
-            echo "already=false" >> "$GITHUB_OUTPUT"
+            on_pypi=true
+            echo "mcpify-openapi ${version} is already on PyPI — skipping the upload."
           fi
+          echo "on_pypi=${on_pypi}" >> "$GITHUB_OUTPUT"
+          in_registry=false
+          if curl -fsS "https://registry.modelcontextprotocol.io/v0/servers/io.github.furkan708%2Fmcpify/versions/${version}" >/dev/null 2>&1; then
+            in_registry=true
+            echo "MCP registry already lists ${version} — skipping the manifest publish."
+          fi
+          echo "in_registry=${in_registry}" >> "$GITHUB_OUTPUT"
       # A tag can be re-cut (a history rewrite, a moved tag, a re-run after a
       # failure) without re-publishing the same files: PyPI rejects duplicate
       # filenames outright, so that one 400 turned a green release red twice.
       - name: Publish to PyPI
-        if: steps.seen.outputs.already == 'false'
+        if: steps.seen.outputs.on_pypi == 'false'
         uses: pypa/gh-action-pypi-publish@release/v1
       - name: Install mcp-publisher
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+      # Neither PyPI nor the MCP registry accepts the same version twice, so a
+      # re-cut tag (rewritten history, a moved tag, a re-run) must skip the
+      # half that already landed instead of failing on it. Both checks read
+      # the version from pyproject — never the tag name, which can disagree
+      # with the code when a tag is re-cut by hand.
       - name: Publish to MCP Registry
+        if: steps.seen.outputs.in_registry == 'false'
         run: |
           ./mcp-publisher login github-oidc
           ./mcp-publisher publish
+      - name: Summary
+        run: |
+          echo "version ${{ steps.seen.outputs.version }} — PyPI: on_pypi=${{ steps.seen.outputs.on_pypi }}, registry: in_registry=${{ steps.seen.outputs.in_registry }}" >> "$GITHUB_STEP_SUMMARY"
 
   github-release:
     needs: build
