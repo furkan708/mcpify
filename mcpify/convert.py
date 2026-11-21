@@ -68,8 +68,8 @@ def convert(body: str, parsed_json: object, content_type: str, fmt: str) -> tupl
         return body, None
     if not looks_like_xml(body, content_type):
         return body, None
-    lowered_head = body[:2048].lower()
-    if "<!doctype" in lowered_head or "<!entity" in lowered_head:
+    lowered_body = body.lower()
+    if "<!doctype" in lowered_body or "<!entity" in lowered_body:
         # DTD/entity iceren dokumanlar donusturulmez (billion-laughs sinifi
         # XML saldirilari); ham govde aynen doner — parse edilmez
         if fmt == "xml":
