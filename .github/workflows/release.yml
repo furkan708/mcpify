@@ -42,7 +42,21 @@ jobs:
         with:
           name: dist
           path: dist/
+      - name: Is this version already on PyPI?
+        id: seen
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if curl -fsS "https://pypi.org/pypi/mcpify-openapi/${version}/json" >/dev/null 2>&1; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "mcpify-openapi ${version} is already published — skipping the upload."
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+          fi
+      # A tag can be re-cut (a history rewrite, a moved tag, a re-run after a
+      # failure) without re-publishing the same files: PyPI rejects duplicate
+      # filenames outright, so that one 400 turned a green release red twice.
       - name: Publish to PyPI
+        if: steps.seen.outputs.already == 'false'
         uses: pypa/gh-action-pypi-publish@release/v1
       - name: Install mcp-publisher
         run: |
