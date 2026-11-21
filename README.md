@@ -361,10 +361,9 @@ Full checklist with per-item status: **[docs/AUDIT-CHECKLIST.md](docs/AUDIT-CHEC
 ## Tests
 
 **575 passing**, plus one live-integration test that loads the real
-api.weather.gov document (auto-skipped when offline) and an OTel positive
-test that runs wherever the optional tracing extra is installed. Every
-suite runs on Python 3.10–3.12 across Linux and Windows; `ruff`, strict
-`mypy` and CodeQL gate every push.
+api.weather.gov document (auto-skipped when offline). Every suite runs on
+Python 3.10–3.12 across Linux and Windows; `ruff`, strict `mypy` and
+CodeQL gate every push.
 
 | Suite | Tests | What it pins down |
 |---|---:|---|
