@@ -1,0 +1,334 @@
+[
+  {
+    "_meta": {
+      "deprecated": false,
+      "has_body": false,
+      "method": "GET",
+      "parameters": [
+        {
+          "description": "How many pets to return",
+          "in": "query",
+          "name": "limit",
+          "schema": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        {
+          "description": "Filter by kind",
+          "in": "query",
+          "name": "kind",
+          "schema": {
+            "enum": [
+              "cat",
+              "dog",
+              "bird"
+            ],
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/pets",
+      "raw_body_content_type": null,
+      "tags": [
+        "pets"
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true,
+      "title": "List all pets"
+    },
+    "description": "[GET] List all pets",
+    "inputSchema": {
+      "properties": {
+        "kind": {
+          "description": "Filter by kind",
+          "enum": [
+            "cat",
+            "dog",
+            "bird"
+          ],
+          "type": "string"
+        },
+        "limit": {
+          "description": "How many pets to return",
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "list_pets"
+  },
+  {
+    "_meta": {
+      "deprecated": false,
+      "has_body": true,
+      "method": "POST",
+      "parameters": [],
+      "path": "/pets",
+      "raw_body_content_type": null,
+      "tags": [
+        "pets"
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false,
+      "title": "Create a pet"
+    },
+    "description": "[POST] Create a pet",
+    "inputSchema": {
+      "properties": {
+        "body": {
+          "description": "JSON request body",
+          "properties": {
+            "age": {
+              "description": "Age in years",
+              "type": "integer"
+            },
+            "kind": {
+              "enum": [
+                "cat",
+                "dog",
+                "bird"
+              ],
+              "type": "string"
+            },
+            "name": {
+              "description": "Pet name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "kind"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "create_pet"
+  },
+  {
+    "_meta": {
+      "deprecated": false,
+      "has_body": false,
+      "method": "GET",
+      "parameters": [
+        {
+          "in": "path",
+          "name": "petId",
+          "required": true,
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "path": "/pets/{petId}",
+      "raw_body_content_type": null,
+      "tags": [
+        "pets"
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true,
+      "title": "Get a single pet"
+    },
+    "description": "[GET] Get a single pet",
+    "inputSchema": {
+      "properties": {
+        "petId": {
+          "description": "",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "petId"
+      ],
+      "type": "object"
+    },
+    "name": "get_pet"
+  },
+  {
+    "_meta": {
+      "deprecated": false,
+      "has_body": false,
+      "method": "DELETE",
+      "parameters": [
+        {
+          "in": "path",
+          "name": "petId",
+          "required": true,
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "path": "/pets/{petId}",
+      "raw_body_content_type": null,
+      "tags": [
+        "pets"
+      ]
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false,
+      "title": "Delete a pet"
+    },
+    "description": "[DELETE] Delete a pet",
+    "inputSchema": {
+      "properties": {
+        "petId": {
+          "description": "",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "petId"
+      ],
+      "type": "object"
+    },
+    "name": "delete_pet"
+  },
+  {
+    "_meta": {
+      "deprecated": false,
+      "has_body": false,
+      "method": "GET",
+      "parameters": [
+        {
+          "in": "path",
+          "name": "petId",
+          "required": true,
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "path": "/pets/{petId}/vaccinations",
+      "raw_body_content_type": null,
+      "tags": [
+        "vaccinations"
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true,
+      "title": "List vaccinations of a pet"
+    },
+    "description": "[GET] List vaccinations of a pet",
+    "inputSchema": {
+      "properties": {
+        "petId": {
+          "description": "",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "petId"
+      ],
+      "type": "object"
+    },
+    "name": "list_vaccinations"
+  },
+  {
+    "_meta": {
+      "deprecated": false,
+      "has_body": true,
+      "method": "POST",
+      "parameters": [
+        {
+          "in": "path",
+          "name": "petId",
+          "required": true,
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "path": "/pets/{petId}/vaccinations",
+      "raw_body_content_type": null,
+      "tags": [
+        "vaccinations"
+      ]
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false,
+      "title": "Record a vaccination"
+    },
+    "description": "[POST] Record a vaccination",
+    "inputSchema": {
+      "properties": {
+        "body": {
+          "description": "JSON request body",
+          "properties": {
+            "date": {
+              "format": "date",
+              "type": "string"
+            },
+            "vaccine": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "vaccine"
+          ],
+          "type": "object"
+        },
+        "petId": {
+          "description": "",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "petId"
+      ],
+      "type": "object"
+    },
+    "name": "add_vaccination"
+  },
+  {
+    "_meta": {
+      "deprecated": false,
+      "has_body": false,
+      "method": "GET",
+      "parameters": [],
+      "path": "/stats",
+      "raw_body_content_type": null,
+      "tags": []
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true,
+      "title": "Store statistics"
+    },
+    "description": "[GET] Store statistics",
+    "inputSchema": {
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "name": "get_stats"
+  }
+]
