@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`:next` in `mcpify try`.** The REPL records the pagination hint of the
+  last call and follows it: the same JSON object the model would read is
+  merged over the arguments already used, so a human paging through
+  results cannot diverge from an agent doing the same. One request per
+  `:next`; it says so plainly when there is nothing to follow. 6 tests.
 - **Pagination hints.** A 200 response whose upstream signals more results
   (`Link: rel="next"`, an `X-Next-Url` header, a `next`/`next_url` body
   field, or a `next_cursor`-style token) now ends with one actionable line:

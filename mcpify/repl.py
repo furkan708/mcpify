@@ -9,6 +9,7 @@ Commands:
   <number> | <name>   select a tool and fill its arguments
   :raw NAME {json}    call a tool with arguments given as inline JSON
   :info [SEL]         show the full schema of the selected tool
+  :next               follow the pagination hint of the last call
   :fields [F1,F2|-]   show / set / clear session response projection
   :redact [F1,F2|-]   show / set / clear session secret masking
   :ls                 re-list the tools
@@ -35,6 +36,7 @@ commands:
   <number> | <name>   select a tool and fill its arguments
   :raw NAME {json}    call a tool with inline JSON arguments
   :info [SEL]         show the full schema of the selected tool
+  :next               follow the pagination hint of the last call
   :fields [F1,F2|-]   show / set / clear session response projection
   :redact [F1,F2|-]   show / set / clear session secret masking
   :ls                 re-list the tools
@@ -156,6 +158,8 @@ def run(
     tools = [lookup[name] for name in server.listed_names]
     out(f"mcpify try — {len(tools)} tools. Type :h for help, :q to quit.")
     selected: dict[str, Any] | None = None
+    # (tool, arguments-for-the-next-page) of the last call that carried a hint
+    last_page: tuple[dict[str, Any], dict[str, Any]] | None = None
 
     def list_tools() -> None:
         for index, tool in enumerate(tools, 1):
@@ -178,6 +182,17 @@ def run(
             return
         if line in (":h", ":help"):
             out(HELP_TEXT)
+            continue
+        if line == ":next":
+            if last_page is None:
+                out("  ! nothing to follow — the hint appears when the API reports "
+                    "another page")
+                continue
+            page_tool, page_args = last_page
+            out(f"→ {page_tool['name']} (next page)")
+            payload = _execute(server, page_tool["name"], page_args, out)
+            following = _page_arguments(payload, page_args) if payload is not None else None
+            last_page = (page_tool, following) if following else None
             continue
         if line == ":ls":
             list_tools()
@@ -240,7 +255,9 @@ def run(
             except ValueError as err:
                 out(f"  ! invalid JSON arguments: {err}")
                 continue
-            _execute(server, tool["name"], arguments, out)
+            payload = _execute(server, tool["name"], arguments, out)
+            following = _page_arguments(payload, arguments) if payload is not None else None
+            last_page = (tool, following) if following else None
             continue
 
         target = _resolve(line, tools)
@@ -260,7 +277,9 @@ def run(
             continue
         if arguments is None:
             continue
-        _execute(server, target["name"], arguments, out)
+        payload = _execute(server, target["name"], arguments, out)
+        following = _page_arguments(payload, arguments) if payload is not None else None
+        last_page = (target, following) if following else None
 
 
 def _resolve(reference: str, tools: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -281,11 +300,52 @@ def _resolve(reference: str, tools: list[dict[str, Any]]) -> dict[str, Any] | No
     return None
 
 
-def _execute(server: Any, name: str, arguments: dict[str, Any], out: Callable[[str], None]) -> None:
+def _page_arguments(payload: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any] | None:
+    """The arguments for the NEXT page, read out of this page's own hint.
+
+    The hint is the same line mcpify hands the model, so ``:next`` cannot
+    drift from what an agent would do. Arguments that are not pagination
+    parameters (a filter the human typed) are carried along, so page two
+    answers the SAME question as page one.
+    """
+    text = ""
+    for block in payload.get("content") or []:
+        if isinstance(block, dict) and block.get("type") == "text":
+            text = str(block.get("text", ""))
+            break
+    marker = "with {"
+    if "[pagination]" not in text or marker not in text:
+        return None
+    tail = text.split(marker, 1)[1]
+    depth = 1  # the marker consumed the opening brace
+    end = None
+    for index, char in enumerate(tail):
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                end = index
+                break
+    if end is None:
+        return None
+    try:
+        found = json.loads("{" + tail[:end] + "}")
+    except ValueError:
+        return None
+    if not isinstance(found, dict) or not found:
+        return None
+    return {**previous, **found}
+
+
+def _execute(
+    server: Any, name: str, arguments: dict[str, Any], out: Callable[[str], None]
+) -> dict[str, Any] | None:
     started = time.monotonic()
     try:
-        payload = server.run_tool(name, arguments)
+        payload: dict[str, Any] = server.run_tool(name, arguments)
     except Exception as err:  # RequestError and anything upstream-raised
         out(f"  ✗ {err}")
-        return
+        return None
     _render_result(payload, time.monotonic() - started, out)
+    return payload

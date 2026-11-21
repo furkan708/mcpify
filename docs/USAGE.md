@@ -665,6 +665,22 @@ re-lists, `:q` quits (Ctrl+C/D work too). Arguments are prompted field by
 field with the schema's types, enums and defaults — a wrong type is
 re-asked, not silently dropped.
 
+`:next` follows the pagination hint of the last call: it reads the same
+`[pagination] … with {"cursor": …}` line the model would read, merges it
+over the arguments you already used (your own filters ride along), and
+calls again. Keep typing `:next` until the API stops reporting another
+page; each `:next` is exactly one request.
+
+```text
+mcpify try> :raw list_pets {"limit": 5}
+  ✓ (0.09s)
+  {"items": [...], "next_cursor": "tok-2"}
+  [pagination] more results available — call list_pets with {"cursor": "tok-2", "limit": "5"} …
+mcpify try> :next
+→ list_pets (next page)
+  ✓ (0.08s)
+```
+
 **What you see is what an agent gets:** `try` runs the identical
 execution path as MCP `tools/call` — same auth, retry, cache, truncation,
 remediation. It is also the fastest way to sanity-check credentials and
