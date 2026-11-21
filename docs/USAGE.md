@@ -320,11 +320,16 @@ Notes for production:
   tool call cannot flood the model's context.
 
 **Does mcpify cache or store anything?**
-No. It is a stateless translation layer between MCP and your API.
+Response caching is off by default. With `--cache-ttl`, GET responses are
+kept in a bounded in-memory cache; other opt-in features such as audit or
+file logging can write data to disk.
 
 **Can the agent see my API key?**
-No. Keys live in the server process environment and are injected into
-outgoing requests only. They never appear in tool descriptions or results.
+Credentials from `--auth-env` are injected into outgoing requests, not tool
+descriptions. Cross-origin redirects drop caller-supplied headers, including
+custom authentication headers; same-origin redirects retain them. An upstream
+API can still echo credentials in its response or place them in a redirect
+URL, so review upstream behavior and protect logs.
 
 **POST bodies?**
 Exposed as a single `body` object argument whose shape comes from the
@@ -522,8 +527,11 @@ mcpify serve spec.json \
 - **Logging** never touches the JSON-RPC stream; URLs are logged without
   query strings and `Authorization` values are masked. Response bodies
   are excerpted (first 1000 chars) — point `--log-file` somewhere private.
-- **Cache** is in-memory, bounded (256 entries), GET+200 only. Distinct
-  arguments are distinct entries; expiry is per-TTL.
+- **Cache** is in-memory, bounded (256 entries), GET+200 only. Request
+  URLs and headers distinguish entries, including credentials and header
+  parameters; header values are hashed in cache keys. Expired entries with
+  an ETag are conditionally revalidated. Cache keys retain the URL, so query
+  parameters (including query credentials) remain in memory.
 - **Retry** is idempotent-only by design (see Deliberate omissions).
 - **`--format auto`** trusts the response Content-Type; `xml` forces
   conversion even without the header. Namespaces are simplified —

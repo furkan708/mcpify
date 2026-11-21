@@ -320,7 +320,7 @@ def test_401_points_at_auth_flags(base):
 def test_429_carries_retry_after_and_no_retry_policy(base):
     text = call(make(base), "limited")["result"]["content"][0]["text"]
     assert "7s" in text
-    assert "never retries automatically" in text
+    assert "--wait-on-429" in text
 
 
 def test_5xx_blames_upstream_not_mcpify(base):
@@ -428,7 +428,7 @@ def test_lazy_call_inner_errors_surface_with_remediation(base):
     server = make(base, lazy=True)
     response = call(server, CALL_TOOL, {"name": "limited"})
     assert response["result"]["isError"] is True
-    assert "never retries" in response["result"]["content"][0]["text"]
+    assert "--wait-on-429" in response["result"]["content"][0]["text"]
 
 
 def test_lazy_direct_call_of_unlisted_tool_is_rejected_with_guidance(base):

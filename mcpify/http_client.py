@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import gzip
+import hashlib
 import json
 import os
 import sys
@@ -31,25 +32,24 @@ from .tools import RequestError
 
 
 class _CrossHostSanitizingRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Credential hygiene on redirects.
+    """Do not forward caller-supplied headers across origins.
 
-    A 3xx to another host must not carry the API credential along — an
-    open redirect on the upstream would otherwise hand the token to a
-    third party (found by the silent-failure battery: urllib's default
-    handler forwards Authorization across hosts). Same-host redirects
-    keep working as before.
+    Credentials can use arbitrary header names, so a denylist is not safe.
+    A scheme change also crosses the trust boundary, including HTTPS to HTTP.
     """
 
     def redirect_request(  # urllib's base signature is untyped; Any keeps the override strict-clean
         self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str
     ) -> Any:
-        old_host = urllib.parse.urlsplit(req.full_url).netloc.lower()
-        new_host = urllib.parse.urlsplit(newurl).netloc.lower()
-        if new_host != old_host:
-            for header in ("Authorization", "Cookie"):
-                req.headers.pop(header, None)
-                req.unredirected_hdrs.pop(header, None)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        old = urllib.parse.urlsplit(req.full_url)
+        new = urllib.parse.urlsplit(newurl)
+        if redirected is not None and (old.scheme.lower(), old.netloc.lower()) != (
+            new.scheme.lower(), new.netloc.lower()
+        ):
+            redirected.headers.clear()
+            redirected.unredirected_hdrs.clear()
+        return redirected
 
 
 _OPENER = urllib.request.build_opener(_CrossHostSanitizingRedirectHandler)
@@ -182,8 +182,6 @@ class ResponseCache:
             if entry and entry["expires"] > now:
                 result: dict[str, Any] = entry["result"]
                 return result
-            if entry:
-                del self._store[key]
         return None
 
     def get_stale(self, key: str) -> dict[str, Any] | None:
@@ -234,7 +232,7 @@ def _retry_after_seconds(result: dict[str, Any], fallback: float) -> float | Non
     """Parse the Retry-After header (integer seconds). HTTP-date form and
     unparsable values return None (nothing sane to wait); a missing
     header falls back to the configured retry delay."""
-    value = (result.get("headers") or {}).get("Retry-After")
+    value = _header_value(result.get("headers") or {}, "Retry-After")
     if value is None:
         return fallback
     try:
@@ -307,7 +305,12 @@ def _header_value(headers: dict[str, str], name: str) -> str | None:
 
 
 def _execute_once(request: dict[str, Any], timeout: float, cache: ResponseCache | None = None) -> dict[str, Any]:
-    cache_key = request.get("method", "GET").upper() + " " + request["url"]
+    # Header parameters (including credentials) can change the representation.
+    # Hash them so the cache key does not retain plaintext header secrets, while
+    # keeping the URL searchable for the cache invalidation tool.
+    header_items = sorted((str(k).lower(), str(v)) for k, v in request["headers"].items())
+    header_hash = hashlib.sha256(json.dumps(header_items).encode("utf-8")).hexdigest()
+    cache_key = request.get("method", "GET").upper() + " " + request["url"] + " " + header_hash
     is_get = request.get("method", "GET").upper() == "GET"
     revalidate_entry: dict[str, Any] | None = None
     if cache is not None and is_get:
@@ -480,9 +483,9 @@ def remediation(result: dict[str, Any], tool: dict[str, Any] | None = None, know
     elif status == 405:
         tips.append("HTTP method not allowed on this path — the operation may have changed upstream.")
     elif status == 429:
-        retry_after = (result.get("headers") or {}).get("Retry-After")
+        retry_after = _header_value(result.get("headers") or {}, "Retry-After")
         wait = f"waiting {retry_after}s" if retry_after else "backing off"
-        tips.append(f"Rate limited — the API suggests {wait}. mcpify never retries automatically.")
+        tips.append(f"Rate limited — the API suggests {wait}. Check --wait-on-429 for automatic retry.")
     elif status >= 500:
         tips.append(
             "The upstream API failed (not an mcpify error). Re-running the call "

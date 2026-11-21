@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Cross-origin redirects (including HTTPS-to-HTTP) no longer forward
+  caller-supplied headers, including custom API-key headers. Same-origin
+  redirects retain their headers.
+- GET cache entries are separated by request headers, and expired ETag
+  entries can actually be revalidated with `If-None-Match`.
+- XML DTD/entity detection covers the entire document, not just its first
+  2,048 characters.
+- `Retry-After` header matching is case-insensitive.
+
 ## [1.19.0] - 2026-08-31
 
 ### Added — error taxonomy: three categories, not one bucket
